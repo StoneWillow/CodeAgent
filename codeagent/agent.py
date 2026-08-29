@@ -7,7 +7,7 @@ from codeagent.conversation import Conversation
 from codeagent.llm.base import LLMClient, TextDeltaListener
 from codeagent.llm.factory import create_llm
 from codeagent.prompts.manager import PromptManager
-from codeagent.tools import build_default_registry
+from codeagent.tools import AskUser, ConfirmBash, TodoStore, build_default_registry
 from codeagent.tools.registry import ToolRegistry
 
 ToolListener = Callable[[str, dict[str, Any]], None]
@@ -43,13 +43,22 @@ class Agent:
         tools: ToolRegistry | None = None,
         prompts: PromptManager | None = None,
         llm: LLMClient | None = None,
+        ask_user: AskUser | None = None,
+        confirm_bash: ConfirmBash | None = None,
+        todo_store: TodoStore | None = None,
     ) -> Agent:
         prompts = prompts or PromptManager(workspace=settings.workspace)
         return cls(
             llm=llm or create_llm(settings),
             conversation=Conversation(prompts.system_prompt),
             prompts=prompts,
-            tools=tools or build_default_registry(settings.workspace),
+            tools=tools
+            or build_default_registry(
+                settings.workspace,
+                ask_user=ask_user,
+                confirm_bash=confirm_bash,
+                todo_store=todo_store,
+            ),
             max_turns=settings.max_turns,
             on_tool=on_tool,
             on_text_delta=on_text_delta,

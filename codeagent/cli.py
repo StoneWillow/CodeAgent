@@ -47,6 +47,57 @@ class _StreamPrinter:
             print(f"Agent> {fallback}", flush=True)
 
 
+def _cli_confirm_bash(command: str, reason: str) -> bool:
+    print(f"\n[权限确认] Bash 命令需要用户批准")
+    print(f"  原因: {reason}")
+    print(f"  命令: {command}")
+    try:
+        answer = input("  允许执行? [y/N]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    return answer in {"y", "yes"}
+
+
+def _cli_ask_user(
+    question: str,
+    options: list[str] | None,
+    allow_multiple: bool,
+) -> str:
+    print(f"\n[向用户提问] {question}")
+    if not options:
+        try:
+            return input("  你的回答: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return ""
+
+    for idx, opt in enumerate(options, start=1):
+        print(f"  {idx}. {opt}")
+    hint = "输入编号（多选用逗号分隔）" if allow_multiple else "输入编号"
+    try:
+        raw = input(f"  {hint}: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return ""
+
+    if allow_multiple:
+        picks: list[str] = []
+        for part in raw.replace("，", ",").split(","):
+            part = part.strip()
+            if not part.isdigit():
+                continue
+            i = int(part) - 1
+            if 0 <= i < len(options):
+                picks.append(options[i])
+        return ", ".join(picks) if picks else raw
+    if raw.isdigit():
+        i = int(raw) - 1
+        if 0 <= i < len(options):
+            return options[i]
+    return raw
+
+
 def _reply(agent: Agent, user_text: str) -> None:
     printer = _StreamPrinter()
     output = agent.run(
@@ -67,7 +118,11 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(1)
 
     try:
-        agent = Agent.from_settings(settings)
+        agent = Agent.from_settings(
+            settings,
+            ask_user=_cli_ask_user,
+            confirm_bash=_cli_confirm_bash,
+        )
     except ValueError as exc:
         print(str(exc))
         sys.exit(1)
