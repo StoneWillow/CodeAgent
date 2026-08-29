@@ -132,6 +132,10 @@ class Compressor:
 
         return messages
 
+    def force_snapshot(self, conversation: Conversation) -> None:
+        """Used when the API still reports context overflow after local counting."""
+        self._maybe_compress(conversation, tools=None, force_stage2=True)
+
     def _notify(self, msg: str) -> None:
         if self._on_compress is not None:
             self._on_compress(msg)
@@ -182,15 +186,18 @@ class Compressor:
             return False
 
         prompt = _STAGE1_PROMPT.format(payload=json.dumps(payloads, ensure_ascii=False))
-        result = self._llm.chat(
-            [
-                {"role": "system", "content": "你只输出 JSON。"},
-                {"role": "user", "content": prompt},
-            ],
-            tools=None,
-            on_text_delta=None,
-        )
-        summaries = _extract_json_array(result.content or "")
+        try:
+            result = self._llm.chat(
+                [
+                    {"role": "system", "content": "你只输出 JSON。"},
+                    {"role": "user", "content": prompt},
+                ],
+                tools=None,
+                on_text_delta=None,
+            )
+            summaries = _extract_json_array(result.content or "")
+        except Exception:
+            summaries = None
         if summaries is None or len(summaries) != len(indices):
             for i, idx in enumerate(indices):
                 original = str(messages[idx].get("content") or "")
@@ -209,15 +216,18 @@ class Compressor:
     def _stage2_snapshot(self, conversation: Conversation) -> None:
         payload = json.dumps(conversation.to_messages()[1:], ensure_ascii=False)[:50000]
         prompt = _STAGE2_PROMPT.format(payload=payload)
-        result = self._llm.chat(
-            [
-                {"role": "system", "content": "你只输出 JSON。"},
-                {"role": "user", "content": prompt},
-            ],
-            tools=None,
-            on_text_delta=None,
-        )
-        data = _extract_json_object(result.content or "")
+        try:
+            result = self._llm.chat(
+                [
+                    {"role": "system", "content": "你只输出 JSON。"},
+                    {"role": "user", "content": prompt},
+                ],
+                tools=None,
+                on_text_delta=None,
+            )
+            data = _extract_json_object(result.content or "")
+        except Exception:
+            data = None
         snapshot = ""
         short_term: list[str] = []
         long_term_new: list[str] = []

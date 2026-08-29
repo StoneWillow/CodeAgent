@@ -13,9 +13,11 @@ alwaysApply: true
 - `codeagent/conversation.py`：消息列表即上下文；保持可 JSON 序列化。
 - `codeagent/agent.py`：ReAct 循环（调模型 → 若 tool_calls 则执行再续 → 否则对用户输出）。
 
-第二层已有：@tool、文件工具、workspace 沙箱、流式 CLI。第三层已有：Bash 权限、AskUserQuestion、TodoWrite、NotebookEdit。第四层已有：两层上下文压缩 + 规则式 Memory（tiktoken、70%/35% 阈值、超限退出）。后续再加：错误重试、会话落盘。
+第二层已有：@tool、文件工具、workspace 沙箱、流式 CLI。第三层已有：Bash 权限、AskUserQuestion、TodoWrite、NotebookEdit。第四层已有：两层上下文压缩 + 规则式 Memory。第五层已有：工具参数校验与熔断、API 重试、压缩兜底、服务端超长强制快照。后续再加：会话落盘。
 
 - `codeagent/context/`：token 计数与 Compressor；发模型前调用。
 - `codeagent/memory/`：短/长期记忆文件；压缩后由 PromptManager 嵌入 system。
+- `codeagent/tools/registry.py`：校验、错误分类、输出截断、连续失败熔断。
+- `codeagent/llm/openai_compatible.py`：超时/429/5xx 重试；context_length 抛给 Agent 再压一次。
 
 密钥只从 `.env` / 环境变量读。不要提交 `.env`。

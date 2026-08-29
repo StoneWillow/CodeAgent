@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
-from openai import OpenAI
+from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI, RateLimitError
 
 from codeagent.llm.base import ChatResult, TextDeltaListener, ToolCall
+from codeagent.llm.errors import ContextLengthAPIError, LLMRequestError
+
+_MAX_RETRIES = 3
+_RETRY_BASE_SECONDS = 1.0
 
 
 def _parse_arguments(raw: str | dict[str, Any] | None) -> dict[str, Any]:
@@ -21,6 +26,20 @@ def _parse_arguments(raw: str | dict[str, Any] | None) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {"_raw": raw}
     return data if isinstance(data, dict) else {"_raw": data}
+
+
+def _is_context_length_error(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return any(
+        token in text
+        for token in (
+            "context_length_exceeded",
+            "maximum context length",
+            "context window",
+            "too many tokens",
+            "prompt is too long",
+        )
+    )
 
 
 class _StreamAccumulator:
@@ -63,24 +82,24 @@ class _StreamAccumulator:
         ordered = [self._tools[i] for i in sorted(self._tools)]
         tool_calls = [
             ToolCall(
-                id=item["id"],
+                id=item["id"] or f"call_{i}",
                 name=item["name"],
                 arguments=_parse_arguments(item["arguments"]),
             )
-            for item in ordered
+            for i, item in enumerate(ordered)
         ]
         raw: dict[str, Any] = {"role": "assistant", "content": content}
         if ordered:
             raw["tool_calls"] = [
                 {
-                    "id": item["id"],
+                    "id": tc.id,
                     "type": "function",
                     "function": {
                         "name": item["name"],
                         "arguments": item["arguments"],
                     },
                 }
-                for item in ordered
+                for tc, item in zip(tool_calls, ordered)
             ]
         return ChatResult(
             content=content,
@@ -95,13 +114,53 @@ class OpenAICompatibleClient:
 
     def __init__(self, api_key: str, base_url: str, model: str) -> None:
         self._model = model
-        self._client = OpenAI(api_key=api_key, base_url=base_url)
+        self._client = OpenAI(api_key=api_key, base_url=base_url, timeout=60.0)
 
     def chat(
         self,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         on_text_delta: TextDeltaListener | None = None,
+    ) -> ChatResult:
+        last_error: BaseException | None = None
+        emitted = False
+
+        def wrapped_delta(text: str) -> None:
+            nonlocal emitted
+            emitted = True
+            if on_text_delta is not None:
+                on_text_delta(text)
+
+        for attempt in range(_MAX_RETRIES):
+            try:
+                return self._chat_once(messages, tools, wrapped_delta)
+            except ContextLengthAPIError:
+                raise
+            except (APITimeoutError, APIConnectionError, RateLimitError) as exc:
+                last_error = exc
+            except APIStatusError as exc:
+                if _is_context_length_error(exc):
+                    raise ContextLengthAPIError(str(exc)) from exc
+                status = getattr(exc, "status_code", None)
+                if status is not None and status < 500:
+                    raise LLMRequestError(str(exc)) from exc
+                last_error = exc
+            except Exception as exc:
+                if _is_context_length_error(exc):
+                    raise ContextLengthAPIError(str(exc)) from exc
+                last_error = exc
+
+            if emitted:
+                break
+            time.sleep(_RETRY_BASE_SECONDS * (2**attempt))
+
+        raise LLMRequestError(f"模型请求失败（已重试 {_MAX_RETRIES} 次）: {last_error}")
+
+    def _chat_once(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
+        on_text_delta: TextDeltaListener | None,
     ) -> ChatResult:
         kwargs: dict[str, Any] = {
             "model": self._model,

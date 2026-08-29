@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import uuid
 from typing import Any, Callable
 
 from codeagent.config import Settings
 from codeagent.context.compressor import Compressor, CompressionListener
 from codeagent.conversation import Conversation
 from codeagent.llm.base import LLMClient, TextDeltaListener
+from codeagent.llm.errors import ContextLengthAPIError, LLMRequestError
 from codeagent.llm.factory import create_llm
 from codeagent.memory.store import MemoryStore
 from codeagent.prompts.manager import PromptManager
@@ -95,14 +97,26 @@ class Agent:
         schemas = self._tools.schemas()
         text_cb = on_text_delta or self._on_text_delta
         tool_cb = on_tool or self._on_tool
+        last_observation = ""
+        forced_snapshot = False
 
         for _ in range(self._max_turns):
             messages = self._compressor.ensure_fits(self._conversation, schemas)
-            result = self._llm.chat(
-                messages,
-                tools=schemas or None,
-                on_text_delta=text_cb,
-            )
+            try:
+                result = self._llm.chat(
+                    messages,
+                    tools=schemas or None,
+                    on_text_delta=text_cb,
+                )
+            except ContextLengthAPIError:
+                if forced_snapshot:
+                    raise
+                self._compressor.force_snapshot(self._conversation)
+                forced_snapshot = True
+                continue
+            except LLMRequestError as exc:
+                return f"模型请求失败: {exc}"
+
             self._conversation.add_assistant(result.raw_message)
 
             if not result.has_tool_calls:
@@ -110,13 +124,17 @@ class Agent:
                 return text or "(模型没有返回文本)"
 
             for call in result.tool_calls:
+                if not call.id:
+                    call.id = f"call_{uuid.uuid4().hex[:8]}"
                 if tool_cb is not None:
                     tool_cb(call.name, call.arguments)
                 observation = self._tools.execute(call.name, call.arguments)
+                last_observation = observation
                 self._conversation.add_tool_result(
                     tool_call_id=call.id,
                     content=observation,
                     name=call.name,
                 )
 
-        return "已达到本轮最大循环次数，停止。"
+        suffix = f"\n最后一次工具观察: {last_observation[:500]}" if last_observation else ""
+        return "已达到本轮最大循环次数，停止。" + suffix

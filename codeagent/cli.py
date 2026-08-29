@@ -6,6 +6,7 @@ from typing import Any
 from codeagent.agent import Agent
 from codeagent.config import load_settings
 from codeagent.context.errors import ContextOverflowError
+from codeagent.llm.errors import ContextLengthAPIError, LLMRequestError
 
 
 def _configure_stdio() -> None:
@@ -109,6 +110,12 @@ def _reply(agent: Agent, user_text: str) -> None:
         )
     except ContextOverflowError as exc:
         print(f"\n错误：上下文超过上限 ({exc.used}/{exc.budget} token)，已停止。")
+        sys.exit(1)
+    except ContextLengthAPIError as exc:
+        print(f"\n错误：模型拒绝过长上下文，压缩后仍失败。{exc}")
+        sys.exit(1)
+    except LLMRequestError as exc:
+        print(f"\n错误：{exc}")
         sys.exit(1)
     printer.finish(fallback=None if printer.saw_text else output)
 

@@ -83,8 +83,16 @@ class FunctionTool(Tool):
         self.parameters = _build_parameters(func)
 
     def execute(self, arguments: dict[str, Any]) -> str:
+        sig = inspect.signature(self._func)
+        allowed = {
+            name
+            for name, param in sig.parameters.items()
+            if param.kind
+            not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+        }
+        kwargs = {k: v for k, v in (arguments or {}).items() if k in allowed}
         try:
-            result = self._func(**(arguments or {}))
+            result = self._func(**kwargs)
             return str(result) if result is not None else ""
         except Exception as exc:
             return f"工具执行错误 ({self.name}): {exc}"
