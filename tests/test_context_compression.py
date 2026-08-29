@@ -13,7 +13,7 @@ from codeagent.context.errors import ContextOverflowError
 from codeagent.context.tokens import count_request
 from codeagent.conversation import Conversation
 from codeagent.llm.base import ChatResult
-from codeagent.memory.store import MemoryStore
+from codeagent.memory.tiered import TieredMemory
 from codeagent.prompts.manager import PromptManager
 from codeagent.tools import build_default_registry
 
@@ -38,8 +38,10 @@ class FakeLLM:
                 content=json.dumps(
                     {
                         "snapshot": "1. 目标：修 bug\n2. 进度：50%\n3. 文件：a.py",
-                        "short_term": ["- 正在修复 auth 模块"],
-                        "long_term_new": ["- 使用 Python 3.11"],
+                        "session_memory": ["- 正在修复 auth 模块"],
+                        "workspace_memory": ["- workspace 进度"],
+                        "workspace_long_term_new": ["- 使用 Python 3.11"],
+                        "global_memory_new": ["- 始终用中文回复"],
                     },
                     ensure_ascii=False,
                 ),
@@ -52,6 +54,7 @@ class FakeLLM:
 
 
 def _settings(workspace: Path, budget: int) -> Settings:
+    root = workspace.parent
     return Settings(
         provider="deepseek",
         api_key="k",
@@ -60,16 +63,21 @@ def _settings(workspace: Path, budget: int) -> Settings:
         max_turns=4,
         workspace=workspace,
         context_tokens=budget,
-        sessions_dir=workspace.parent / "sessions",
+        sessions_dir=root / "sessions",
+        global_memory_dir=root / "global_memory",
     )
+
+
+def _memory(workspace: Path) -> TieredMemory:
+    return TieredMemory(workspace, workspace.parent / "global_memory")
 
 
 def test_stage1_distills_tool_outputs() -> None:
     with tempfile.TemporaryDirectory() as td:
         ws = Path(td) / "ws"
         ws.mkdir()
-        memory = MemoryStore(ws)
-        prompts = PromptManager(workspace=ws, memory=memory)
+        memory = _memory(ws)
+        prompts = PromptManager(workspace=ws, memory=memory, global_memory_dir=ws.parent / "global_memory")
         llm = FakeLLM()
         budget = 1200
         compressor = Compressor(llm, budget=budget, prompts=prompts, memory=memory)
@@ -102,8 +110,8 @@ def test_stage2_snapshot_and_memory() -> None:
     with tempfile.TemporaryDirectory() as td:
         ws = Path(td) / "ws"
         ws.mkdir()
-        memory = MemoryStore(ws)
-        prompts = PromptManager(workspace=ws, memory=memory)
+        memory = _memory(ws)
+        prompts = PromptManager(workspace=ws, memory=memory, global_memory_dir=ws.parent / "global_memory")
         llm = FakeLLM()
         compressor = Compressor(llm, budget=500, prompts=prompts, memory=memory)
         conv = Conversation(prompts.full_system())
@@ -114,16 +122,17 @@ def test_stage2_snapshot_and_memory() -> None:
         msgs = conv.to_messages()
         assert len(msgs) == 2
         assert msgs[1]["content"].startswith("[会话快照]")
-        assert memory.read_short_term()
-        assert memory.read_long_term()
+        assert memory.session
+        assert memory.workspace_store.read_long_term()
+        assert memory.global_store.read()
 
 
 def test_overflow_raises() -> None:
     with tempfile.TemporaryDirectory() as td:
         ws = Path(td) / "ws"
         ws.mkdir()
-        memory = MemoryStore(ws)
-        prompts = PromptManager(workspace=ws, memory=memory)
+        memory = _memory(ws)
+        prompts = PromptManager(workspace=ws, memory=memory, global_memory_dir=ws.parent / "global_memory")
 
         class TinyLLM:
             def chat(self, messages, tools=None, on_text_delta=None):

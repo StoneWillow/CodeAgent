@@ -8,7 +8,7 @@ from codeagent.context.errors import ContextOverflowError
 from codeagent.context.tokens import count_request, count_text_tokens
 from codeagent.conversation import Conversation
 from codeagent.llm.base import LLMClient
-from codeagent.memory.store import MemoryStore
+from codeagent.memory.tiered import TieredMemory
 from codeagent.prompts.manager import PromptManager
 
 CompressionListener = Callable[[str], None]
@@ -36,8 +36,10 @@ _STAGE2_PROMPT = """你是会话压缩器。把以下对话压成可继续执行
 返回 JSON（不要 markdown）：
 {{
   "snapshot": "按七段写：1.用户目标与限制 2.任务进度 3.关键文件 4.已确认事实与决策 5.已排除路径 6.未完成与下一步 7.风险",
-  "short_term": ["- 规则式短期记忆，最多10条"],
-  "long_term_new": ["- 仅新增的项目级长期规则，可为空"]
+  "session_memory": ["- 本会话目标与进度，最多10条"],
+  "workspace_memory": ["- 本工作区项目状态，最多10条"],
+  "workspace_long_term_new": ["- 仅新增的工作区级长期规则，可为空"],
+  "global_memory_new": ["- 仅新增的全局偏好/规则，可为空"]
 }}
 
 对话：
@@ -94,7 +96,7 @@ class Compressor:
         llm: LLMClient,
         budget: int,
         prompts: PromptManager,
-        memory: MemoryStore,
+        memory: TieredMemory,
         on_compress: CompressionListener | None = None,
     ) -> None:
         self._llm = llm
@@ -229,25 +231,37 @@ class Compressor:
         except Exception:
             data = None
         snapshot = ""
-        short_term: list[str] = []
-        long_term_new: list[str] = []
+        session_memory: list[str] = []
+        workspace_memory: list[str] = []
+        workspace_long_new: list[str] = []
+        global_new: list[str] = []
 
         if data:
             snapshot = str(data.get("snapshot") or "").strip()
-            st = data.get("short_term") or []
-            lt = data.get("long_term_new") or []
-            if isinstance(st, list):
-                short_term = [str(x) for x in st]
-            if isinstance(lt, list):
-                long_term_new = [str(x) for x in lt]
+            sm = data.get("session_memory") or data.get("short_term") or []
+            wm = data.get("workspace_memory") or []
+            wl = data.get("workspace_long_term_new") or data.get("long_term_new") or []
+            gn = data.get("global_memory_new") or []
+            if isinstance(sm, list):
+                session_memory = [str(x) for x in sm]
+            if isinstance(wm, list):
+                workspace_memory = [str(x) for x in wm]
+            if isinstance(wl, list):
+                workspace_long_new = [str(x) for x in wl]
+            if isinstance(gn, list):
+                global_new = [str(x) for x in gn]
 
         if not snapshot:
             snapshot = self._fallback_snapshot(conversation)
 
-        if short_term:
-            self._memory.write_short_term(short_term)
-        if long_term_new:
-            self._memory.merge_long_term(long_term_new)
+        if session_memory:
+            self._memory.write_session(session_memory)
+        if workspace_memory:
+            self._memory.write_workspace_short(workspace_memory)
+        if workspace_long_new:
+            self._memory.merge_workspace_long(workspace_long_new)
+        if global_new:
+            self._memory.merge_global(global_new)
 
         conversation.replace_with_snapshot(self._prompts.full_system(), snapshot)
 

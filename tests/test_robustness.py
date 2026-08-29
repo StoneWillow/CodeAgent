@@ -11,7 +11,7 @@ from codeagent.context.compressor import Compressor
 from codeagent.conversation import Conversation
 from codeagent.llm.base import ChatResult
 from codeagent.llm.errors import ContextLengthAPIError
-from codeagent.memory.store import MemoryStore
+from codeagent.memory.tiered import TieredMemory
 from codeagent.prompts.manager import PromptManager
 from codeagent.tools import build_default_registry
 from codeagent.tools.errors import is_error_observation
@@ -54,8 +54,8 @@ def test_compress_llm_failure_falls_back() -> None:
     with tempfile.TemporaryDirectory() as td:
         ws = Path(td) / "ws"
         ws.mkdir()
-        memory = MemoryStore(ws)
-        prompts = PromptManager(workspace=ws, memory=memory)
+        memory = TieredMemory(ws, Path(td) / "global_memory")
+        prompts = PromptManager(workspace=ws, memory=memory, global_memory_dir=Path(td) / "global_memory")
 
         class BoomLLM:
             def chat(self, messages, tools=None, on_text_delta=None):
@@ -97,7 +97,7 @@ def test_api_context_overflow_forces_snapshot() -> None:
                 system = (messages[0].get("content") or "") if messages else ""
                 if "JSON" in system or "压缩" in user:
                     return ChatResult(
-                        content='{"snapshot":"目标：写函数","short_term":["- 正在写函数"],"long_term_new":[]}',
+                        content='{"snapshot":"目标：写函数","session_memory":["- 正在写函数"],"workspace_memory":[],"workspace_long_term_new":[],"global_memory_new":[]}',
                         raw_message={"role": "assistant", "content": "{}"},
                     )
                 self.n += 1
@@ -117,6 +117,7 @@ def test_api_context_overflow_forces_snapshot() -> None:
             workspace=ws,
             context_tokens=100_000,
             sessions_dir=ws.parent / "sessions",
+            global_memory_dir=ws.parent / "global_memory",
         )
         llm = FlakyLLM()
         agent = Agent.from_settings(settings, llm=llm)

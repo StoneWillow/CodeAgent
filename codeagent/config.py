@@ -21,6 +21,7 @@ class Settings:
     workspace: Path
     context_tokens: int
     sessions_dir: Path
+    global_memory_dir: Path
 
 
 _PROVIDER_PRESETS: dict[str, dict[str, str]] = {
@@ -79,6 +80,14 @@ def load_settings() -> Settings:
     )
     sessions_dir.mkdir(parents=True, exist_ok=True)
 
+    global_raw = os.getenv("CODEAGENT_GLOBAL_MEMORY_DIR", "").strip()
+    global_memory_dir = (
+        Path(global_raw).resolve()
+        if global_raw
+        else (_PROJECT_ROOT / ".agent" / "memory").resolve()
+    )
+    global_memory_dir.mkdir(parents=True, exist_ok=True)
+
     return Settings(
         provider=provider,
         api_key=api_key,
@@ -88,4 +97,5 @@ def load_settings() -> Settings:
         workspace=workspace,
         context_tokens=context_tokens,
         sessions_dir=sessions_dir,
+        global_memory_dir=global_memory_dir,
     )

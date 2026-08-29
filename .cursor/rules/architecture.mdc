@@ -19,7 +19,7 @@ alwaysApply: true
 - `codeagent/web/`：本地 Web 只调 Store/Agent，不改 ReAct 语义；Bash/Ask 用页面 confirm。
 
 - `codeagent/context/`：token 计数与 Compressor；发模型前调用。
-- `codeagent/memory/`：短/长期记忆文件；压缩后由 PromptManager 嵌入 system。
+- `codeagent/memory/`：全局 / 工作区 / 会话三层记忆；压缩后由 PromptManager 嵌入 system。
 - `codeagent/tools/registry.py`：校验、错误分类、输出截断、连续失败熔断。
 - `codeagent/llm/openai_compatible.py`：超时/429/5xx 重试；context_length 抛给 Agent 再压一次。
 

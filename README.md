@@ -10,11 +10,14 @@
 
 - 预算默认 **1M token**（`CODEAGENT_CONTEXT_TOKENS`，对齐 DeepSeek V4）
 - **≥70%**：第一层蒸馏全部工具输出（日志→状态句）
-- 仍 **>35%**：第二层会话快照 + 更新短/长期记忆
+- 仍 **>35%**：第二层会话快照 + 更新三层记忆
 - 仍 **>100%**：打印错误并退出，不发请求
 - 工具失败会写成 `[error:…]` 观察（缺参、越界、超时）；连续 3 次同类失败会熔断
 - 模型 API 超时/429 会重试；服务端报上下文过长会先强制快照再试一次
-- 记忆文件：`workspace/.agent/memory/short_term.txt`（频繁更新）、`long_term.txt`（项目级规则）
+- **三层记忆**（压缩后写入 system）：
+  - **会话**：`sessions/{id}.json` 的 `memory` 字段（本会话目标/进度）
+  - **工作区**：`workspace/.agent/memory/short_term.txt` + `long_term.txt`（项目状态与约束）
+  - **全局**：`.agent/memory/global.txt`（跨工作区偏好，可用 `CODEAGENT_GLOBAL_MEMORY_DIR` 覆盖）
 
 测试压缩可把 `CODEAGENT_CONTEXT_TOKENS` 调小（如 `2000`）。
 
@@ -48,6 +51,7 @@ copy .env.example .env
 | `CODEAGENT_MAX_TURNS` | 默认 `24` |
 | `CODEAGENT_CONTEXT_TOKENS` | 上下文预算，默认 `1000000` |
 | `CODEAGENT_SESSIONS_DIR` | 会话 JSON 目录，默认 `<项目根>/sessions/` |
+| `CODEAGENT_GLOBAL_MEMORY_DIR` | 全局记忆目录，默认 `<项目根>/.agent/memory/` |
 
 ## 使用
 
@@ -77,7 +81,7 @@ CLI 内斜杠命令（不进模型）：
 | `/search <关键词>` | 按标题与对话内容检索 |
 | `/web` | 提示使用 `--web` |
 
-会话文件保存在 `sessions/`（已在 `.gitignore`），每轮回复后自动落盘；含 `messages` 与可选 `todos`。项目级 Memory 仍在 `workspace/.agent/memory/`，多会话共享。
+会话文件保存在 `sessions/`（已在 `.gitignore`），每轮回复后自动落盘；含 `messages`、`todos` 与 `memory`（会话级）。工作区与全局记忆分别落在 `workspace/.agent/memory/` 与 `.agent/memory/`。
 
 把要修改的代码放在 `workspace/` 下。Agent 只能在该目录内读写文件、执行 Bash（cwd 锁定为 workspace）。
 
@@ -114,7 +118,7 @@ CLI 内斜杠命令（不进模型）：
 
 ```text
 codeagent/context/   token 计数、两层压缩
-codeagent/memory/    短/长期规则式记忆
+codeagent/memory/    三层记忆（全局 / 工作区 / 会话）
 codeagent/sessions/  会话落盘与恢复
 codeagent/web/       本地 Web（http.server + 静态页）
 codeagent/tools/     工具与 Bash 权限

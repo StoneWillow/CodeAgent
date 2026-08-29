@@ -9,7 +9,7 @@ from codeagent.conversation import Conversation
 from codeagent.llm.base import LLMClient, TextDeltaListener
 from codeagent.llm.errors import ContextLengthAPIError, LLMRequestError
 from codeagent.llm.factory import create_llm
-from codeagent.memory.store import MemoryStore
+from codeagent.memory.tiered import TieredMemory
 from codeagent.prompts.manager import PromptManager
 from codeagent.tools import AskUser, ConfirmBash, TodoStore, build_default_registry
 from codeagent.tools.registry import ToolRegistry
@@ -53,11 +53,16 @@ class Agent:
         ask_user: AskUser | None = None,
         confirm_bash: ConfirmBash | None = None,
         todo_store: TodoStore | None = None,
-        memory: MemoryStore | None = None,
+        memory: TieredMemory | None = None,
         compressor: Compressor | None = None,
         conversation: Conversation | None = None,
+        session_memory: list[str] | None = None,
     ) -> Agent:
-        memory = memory or MemoryStore(settings.workspace)
+        memory = memory or TieredMemory(
+            settings.workspace,
+            settings.global_memory_dir,
+            session_rules=session_memory,
+        )
         prompts = prompts or PromptManager(workspace=settings.workspace, memory=memory)
         llm_client = llm or create_llm(settings)
         compressor = compressor or Compressor(
@@ -87,6 +92,13 @@ class Agent:
     @property
     def conversation(self) -> Conversation:
         return self._conversation
+
+    @property
+    def memory(self) -> TieredMemory:
+        tiered = self._prompts.memory
+        if tiered is None:
+            raise RuntimeError("agent memory is not configured")
+        return tiered
 
     def run(
         self,
