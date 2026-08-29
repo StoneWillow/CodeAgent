@@ -1,0 +1,19 @@
+---
+description: 推免考核题目硬约束，全程遵守，不得用框架或把 key 入库
+alwaysApply: true
+---
+
+# 考核硬约束
+
+独立实现编程智能体。允许模型厂商 API 客户端、OpenAI 兼容网关、模型原生 tool calling。
+
+禁止：
+
+- LangChain、LlamaIndex、OpenAI Agents SDK、Claude Agent SDK、AutoGen、CrewAI 等任何 agent 框架 / SDK
+- 在现成 agent 产品上封装界面
+- 服务端托管的代码执行或文件工具（Code Interpreter、Files API）
+- 把 API key 写进仓库、README、视频；只用环境变量或未入库 `.env`
+
+必须自己写：对话历史与上下文、工具定义与本地执行、模型输出解析、循环终止、错误处理。
+
+循环内核、工具执行、提示词/记忆必须留在本仓库代码里，不要外包给框架。

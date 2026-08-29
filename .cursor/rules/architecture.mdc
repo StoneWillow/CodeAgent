@@ -1,0 +1,18 @@
+---
+description: 模块边界与迭代范围，改代码时按层扩展、不要揉成一坨
+alwaysApply: true
+---
+
+# 模块与迭代
+
+按目录分工，不要把 LLM / 提示词 / 工具 / 循环写进同一个文件：
+
+- `codeagent/llm/`：各模型客户端。新增厂商只加 provider preset 或新 client，不改 Agent 循环。
+- `codeagent/prompts/`：系统提示词。后续升级为 memory（检索、摘要注入），先不要把记忆逻辑散落到 agent 里。
+- `codeagent/tools/`：工具基类 + Registry。新工具只 `register`，不要在循环里写 if-name。
+- `codeagent/conversation.py`：消息列表即上下文；保持可 JSON 序列化。
+- `codeagent/agent.py`：ReAct 循环（调模型 → 若 tool_calls 则执行再续 → 否则对用户输出）。
+
+第一层已有：循环、内存上下文、CLI 多轮、最小 `test` 工具。后续再加：真实文件/命令工具、上下文压缩、错误重试、流式、会话落盘、权限沙箱。
+
+密钥只从 `.env` / 环境变量读。不要提交 `.env`。
