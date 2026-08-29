@@ -19,6 +19,7 @@ class Settings:
     model: str
     max_turns: int
     workspace: Path
+    context_tokens: int
 
 
 _PROVIDER_PRESETS: dict[str, dict[str, str]] = {
@@ -63,6 +64,12 @@ def load_settings() -> Settings:
     )
     workspace.mkdir(parents=True, exist_ok=True)
 
+    context_raw = os.getenv("CODEAGENT_CONTEXT_TOKENS", "1000000").strip()
+    try:
+        context_tokens = max(1000, int(context_raw))
+    except ValueError:
+        context_tokens = 1_000_000
+
     return Settings(
         provider=provider,
         api_key=api_key,
@@ -70,4 +77,5 @@ def load_settings() -> Settings:
         model=model,
         max_turns=max_turns,
         workspace=workspace,
+        context_tokens=context_tokens,
     )

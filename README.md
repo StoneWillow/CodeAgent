@@ -2,9 +2,19 @@
 
 独立实现的编程智能体：DeepSeek（OpenAI 兼容接口）+ 自研 ReAct 循环。不用 LangChain 等 agent 框架。
 
-当前能力：多轮 CLI、流式输出、`@tool` 注册、文件工具、workspace 沙箱、Bash 三级权限、Todo/提问/Notebook 工具。
+当前能力：多轮 CLI、流式输出、文件工具、Bash 权限、**两层上下文压缩 + 规则式 Memory**。
 
 答辩/演示讲解见 [亮点.md](亮点.md)。
+
+## 上下文压缩与 Memory
+
+- 预算默认 **1M token**（`CODEAGENT_CONTEXT_TOKENS`，对齐 DeepSeek V4）
+- **≥70%**：第一层蒸馏全部工具输出（日志→状态句）
+- 仍 **>35%**：第二层会话快照 + 更新短/长期记忆
+- 仍 **>100%**：打印错误并退出，不发请求
+- 记忆文件：`workspace/.agent/memory/short_term.txt`（频繁更新）、`long_term.txt`（项目级规则）
+
+测试压缩可把 `CODEAGENT_CONTEXT_TOKENS` 调小（如 `2000`）。
 
 ## 环境要求
 
@@ -34,6 +44,7 @@ copy .env.example .env
 | `DEEPSEEK_API_KEY` | 必填 |
 | `CODEAGENT_WORKSPACE` | 默认 `<项目根>/workspace/` |
 | `CODEAGENT_MAX_TURNS` | 默认 `24` |
+| `CODEAGENT_CONTEXT_TOKENS` | 上下文预算，默认 `1000000` |
 
 ## 使用
 
@@ -75,12 +86,8 @@ python -m codeagent
 ## 目录
 
 ```text
-codeagent/tools/
-  bash_policy.py   deny/ask/allow 规则
-  bash.py          Bash 执行
-  interact.py      AskUserQuestion
-  todo.py          TodoWrite
-  notebook.py      NotebookEdit
-  files.py         Read/Write/Edit/Glob/Grep
-workspace/         默认活动范围
+codeagent/context/   token 计数、两层压缩
+codeagent/memory/    短/长期规则式记忆
+codeagent/tools/     工具与 Bash 权限
+workspace/           默认活动范围
 ```

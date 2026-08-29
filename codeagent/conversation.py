@@ -46,6 +46,18 @@ class Conversation:
     def to_dict(self) -> dict[str, Any]:
         return {"messages": self.to_messages()}
 
+    def set_system(self, content: str) -> None:
+        if self._messages and self._messages[0].get("role") == "system":
+            self._messages[0] = {"role": "system", "content": content}
+        else:
+            self._messages.insert(0, {"role": "system", "content": content})
+
+    def replace_with_snapshot(self, system: str, snapshot: str) -> None:
+        self._messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": f"[会话快照]\n{snapshot}"},
+        ]
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Conversation:
         messages = data.get("messages") or []

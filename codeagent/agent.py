@@ -3,9 +3,11 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from codeagent.config import Settings
+from codeagent.context.compressor import Compressor, CompressionListener
 from codeagent.conversation import Conversation
 from codeagent.llm.base import LLMClient, TextDeltaListener
 from codeagent.llm.factory import create_llm
+from codeagent.memory.store import MemoryStore
 from codeagent.prompts.manager import PromptManager
 from codeagent.tools import AskUser, ConfirmBash, TodoStore, build_default_registry
 from codeagent.tools.registry import ToolRegistry
@@ -22,6 +24,7 @@ class Agent:
         conversation: Conversation,
         prompts: PromptManager,
         tools: ToolRegistry,
+        compressor: Compressor,
         max_turns: int,
         on_tool: ToolListener | None = None,
         on_text_delta: TextDeltaListener | None = None,
@@ -30,6 +33,7 @@ class Agent:
         self._conversation = conversation
         self._prompts = prompts
         self._tools = tools
+        self._compressor = compressor
         self._max_turns = max_turns
         self._on_tool = on_tool
         self._on_text_delta = on_text_delta
@@ -40,17 +44,29 @@ class Agent:
         settings: Settings,
         on_tool: ToolListener | None = None,
         on_text_delta: TextDeltaListener | None = None,
+        on_compress: CompressionListener | None = None,
         tools: ToolRegistry | None = None,
         prompts: PromptManager | None = None,
         llm: LLMClient | None = None,
         ask_user: AskUser | None = None,
         confirm_bash: ConfirmBash | None = None,
         todo_store: TodoStore | None = None,
+        memory: MemoryStore | None = None,
+        compressor: Compressor | None = None,
     ) -> Agent:
-        prompts = prompts or PromptManager(workspace=settings.workspace)
+        memory = memory or MemoryStore(settings.workspace)
+        prompts = prompts or PromptManager(workspace=settings.workspace, memory=memory)
+        llm_client = llm or create_llm(settings)
+        compressor = compressor or Compressor(
+            llm=llm_client,
+            budget=settings.context_tokens,
+            prompts=prompts,
+            memory=memory,
+            on_compress=on_compress,
+        )
         return cls(
-            llm=llm or create_llm(settings),
-            conversation=Conversation(prompts.system_prompt),
+            llm=llm_client,
+            conversation=Conversation(prompts.full_system()),
             prompts=prompts,
             tools=tools
             or build_default_registry(
@@ -59,6 +75,7 @@ class Agent:
                 confirm_bash=confirm_bash,
                 todo_store=todo_store,
             ),
+            compressor=compressor,
             max_turns=settings.max_turns,
             on_tool=on_tool,
             on_text_delta=on_text_delta,
@@ -80,8 +97,9 @@ class Agent:
         tool_cb = on_tool or self._on_tool
 
         for _ in range(self._max_turns):
+            messages = self._compressor.ensure_fits(self._conversation, schemas)
             result = self._llm.chat(
-                self._messages_for_llm(),
+                messages,
                 tools=schemas or None,
                 on_text_delta=text_cb,
             )
@@ -102,10 +120,3 @@ class Agent:
                 )
 
         return "已达到本轮最大循环次数，停止。"
-
-    def _messages_for_llm(self) -> list[dict[str, Any]]:
-        messages = self._conversation.to_messages()
-        extra = self._prompts.extra_messages()
-        if not extra:
-            return messages
-        return [messages[0], *extra, *messages[1:]]

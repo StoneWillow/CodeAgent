@@ -5,6 +5,7 @@ from typing import Any
 
 from codeagent.agent import Agent
 from codeagent.config import load_settings
+from codeagent.context.errors import ContextOverflowError
 
 
 def _configure_stdio() -> None:
@@ -100,11 +101,15 @@ def _cli_ask_user(
 
 def _reply(agent: Agent, user_text: str) -> None:
     printer = _StreamPrinter()
-    output = agent.run(
-        user_text,
-        on_text_delta=printer.on_text,
-        on_tool=printer.on_tool,
-    )
+    try:
+        output = agent.run(
+            user_text,
+            on_text_delta=printer.on_text,
+            on_tool=printer.on_tool,
+        )
+    except ContextOverflowError as exc:
+        print(f"\n错误：上下文超过上限 ({exc.used}/{exc.budget} token)，已停止。")
+        sys.exit(1)
     printer.finish(fallback=None if printer.saw_text else output)
 
 
@@ -122,6 +127,7 @@ def main(argv: list[str] | None = None) -> None:
             settings,
             ask_user=_cli_ask_user,
             confirm_bash=_cli_confirm_bash,
+            on_compress=lambda msg: print(msg, flush=True),
         )
     except ValueError as exc:
         print(str(exc))

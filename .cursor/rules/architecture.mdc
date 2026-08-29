@@ -13,11 +13,9 @@ alwaysApply: true
 - `codeagent/conversation.py`：消息列表即上下文；保持可 JSON 序列化。
 - `codeagent/agent.py`：ReAct 循环（调模型 → 若 tool_calls 则执行再续 → 否则对用户输出）。
 
-第二层已有：@tool、文件工具、workspace 沙箱、流式 CLI。第三层已有：Bash 三级权限、AskUserQuestion、TodoWrite、NotebookEdit。后续再加：上下文压缩、错误重试、会话落盘。
+第二层已有：@tool、文件工具、workspace 沙箱、流式 CLI。第三层已有：Bash 权限、AskUserQuestion、TodoWrite、NotebookEdit。第四层已有：两层上下文压缩 + 规则式 Memory（tiktoken、70%/35% 阈值、超限退出）。后续再加：错误重试、会话落盘。
 
-做出可讲的设计决策时，同步更新 [亮点.md](亮点.md)（当前能力写进对应节；未做的放「以后值得写」表）。
-
-- `codeagent/tools/bash_policy.py`：Bash 权限 deny > ask > allow，新增规则放这里。
-- Bash 执行 cwd 固定 workspace；文件增删改禁止走 Bash。
+- `codeagent/context/`：token 计数与 Compressor；发模型前调用。
+- `codeagent/memory/`：短/长期记忆文件；压缩后由 PromptManager 嵌入 system。
 
 密钥只从 `.env` / 环境变量读。不要提交 `.env`。
