@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CodeAgent</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --panel: #171a22;
+      --border: #2a2f3a;
+      --text: #e6e9ef;
+      --muted: #8b93a7;
+      --accent: #4f8cff;
+      --user: #1f2a44;
+      --assistant: #1a1f2b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+    }
+    aside {
+      width: 280px;
+      border-right: 1px solid var(--border);
+      background: var(--panel);
+      display: flex;
+      flex-direction: column;
+      min-width: 220px;
+    }
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+    h1 {
+      font-size: 16px;
+      margin: 16px;
+      font-weight: 600;
+    }
+    .toolbar {
+      padding: 0 12px 12px;
+      display: flex;
+      gap: 8px;
+    }
+    input, button, textarea {
+      font: inherit;
+    }
+    input[type="search"], textarea {
+      background: #0d1017;
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+    input[type="search"] { flex: 1; width: 100%; }
+    button {
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+    button.secondary {
+      background: #2a3142;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    #session-list {
+      flex: 1;
+      overflow: auto;
+      padding: 0 8px 12px;
+    }
+    .session-item {
+      padding: 10px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      margin-bottom: 4px;
+      border: 1px solid transparent;
+    }
+    .session-item:hover { background: #1e2430; }
+    .session-item.active {
+      background: #1b2438;
+      border-color: #35548a;
+    }
+    .session-title {
+      font-size: 14px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .session-meta {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+    .session-snippet {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #messages {
+      flex: 1;
+      overflow: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .msg {
+      max-width: 900px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .msg.user { background: var(--user); align-self: flex-end; }
+    .msg.assistant { background: var(--assistant); align-self: flex-start; }
+    .msg.tool {
+      background: #141820;
+      color: var(--muted);
+      font-size: 13px;
+      align-self: flex-start;
+      border: 1px dashed var(--border);
+    }
+    .composer {
+      border-top: 1px solid var(--border);
+      padding: 16px 20px;
+      display: flex;
+      gap: 10px;
+    }
+    textarea {
+      flex: 1;
+      min-height: 56px;
+      resize: vertical;
+    }
+    #status {
+      padding: 0 20px 8px;
+      color: var(--muted);
+      font-size: 12px;
+      min-height: 18px;
+    }
+    .empty {
+      color: var(--muted);
+      text-align: center;
+      margin-top: 40px;
+    }
+  </style>
+</head>
+<body>
+  <aside>
+    <h1>CodeAgent</h1>
+    <div class="toolbar">
+      <input id="search" type="search" placeholder="搜索会话…" />
+      <button id="new-chat" title="新对话">＋</button>
+    </div>
+    <div id="session-list"></div>
+  </aside>
+  <main>
+    <div id="status"></div>
+    <div id="messages"><div class="empty">选择或新建一个对话</div></div>
+    <div class="composer">
+      <textarea id="input" placeholder="输入消息，Enter 发送，Shift+Enter 换行" rows="2"></textarea>
+      <button id="send">发送</button>
+    </div>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let currentSessionId = null;
+    let busy = false;
+    let assistantNode = null;
+
+    async function api(path, options = {}) {
+      const res = await fetch(path, {
+        headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+        ...options,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || res.statusText);
+      }
+      if ((options.headers || {})["Accept"] === "text/event-stream") {
+        return res;
+      }
+      return res.json();
+    }
+
+    function setStatus(text) {
+      $("status").textContent = text || "";
+    }
+
+    function renderSessions(sessions) {
+      const list = $("session-list");
+      if (!sessions.length) {
+        list.innerHTML = '<div class="empty">暂无会话</div>';
+        return;
+      }
+      list.innerHTML = "";
+      for (const s of sessions) {
+        const el = document.createElement("div");
+        el.className = "session-item" + (s.id === currentSessionId ? " active" : "");
+        el.dataset.id = s.id;
+        el.innerHTML = `
+          <div class="session-title">${escapeHtml(s.title || "新对话")}</div>
+          <div class="session-meta">${escapeHtml(s.id)} · ${formatTime(s.updated_at)}</div>
+          ${s.snippet ? `<div class="session-snippet">${escapeHtml(s.snippet)}</div>` : ""}
+        `;
+        el.onclick = () => loadSession(s.id);
+        list.appendChild(el);
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    function formatTime(iso) {
+      if (!iso) return "";
+      try {
+        return new Date(iso).toLocaleString();
+      } catch {
+        return iso;
+      }
+    }
+
+    async function refreshSessions(query = "") {
+      const data = query
+        ? await api(`/api/sessions/search?q=${encodeURIComponent(query)}`)
+        : await api("/api/sessions");
+      renderSessions(data.sessions || []);
+    }
+
+    function renderMessages(messages) {
+      const box = $("messages");
+      box.innerHTML = "";
+      if (!messages.length) {
+        box.innerHTML = '<div class="empty">开始新对话吧</div>';
+        return;
+      }
+      for (const m of messages) {
+        appendMessage(m.role, m.content);
+      }
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function appendMessage(role, content, extraClass = "") {
+      const box = $("messages");
+      const empty = box.querySelector(".empty");
+      if (empty) empty.remove();
+      const el = document.createElement("div");
+      el.className = `msg ${role} ${extraClass}`.trim();
+      el.textContent = content;
+      box.appendChild(el);
+      box.scrollTop = box.scrollHeight;
+      return el;
+    }
+
+    async function loadSession(id) {
+      const data = await api(`/api/sessions/${id}`);
+      currentSessionId = data.id;
+      renderMessages(data.messages || []);
+      await refreshSessions($("search").value.trim());
+      setStatus(`会话 ${data.id} · ${data.title || "新对话"}`);
+    }
+
+    async function createSession() {
+      const data = await api("/api/sessions", { method: "POST", body: "{}" });
+      currentSessionId = data.id;
+      renderMessages([]);
+      await refreshSessions();
+      setStatus(`已新建会话 ${data.id}`);
+    }
+
+    async function handleConfirm(payload) {
+      if (payload.type === "bash") {
+        const ok = window.confirm(
+          `Bash 需要确认\n\n原因: ${payload.reason}\n命令: ${payload.command}\n\n允许执行？`
+        );
+        await api("/api/confirm", {
+          method: "POST",
+          body: JSON.stringify({ approved: ok }),
+        });
+        return;
+      }
+      let answer = "";
+      if (payload.options && payload.options.length) {
+        const lines = payload.options.map((o, i) => `${i + 1}. ${o}`).join("\n");
+        const raw = window.prompt(
+          `${payload.question}\n\n${lines}\n\n${payload.allow_multiple ? "多选用逗号分隔编号" : "输入编号"}`
+        );
+        if (raw === null) {
+          await api("/api/confirm", { method: "POST", body: JSON.stringify({ answer: "" }) });
+          return;
+        }
+        if (payload.allow_multiple) {
+          const picks = [];
+          for (const part of raw.split(/[,，]/)) {
+            const n = parseInt(part.trim(), 10);
+            if (n >= 1 && n <= payload.options.length) picks.push(payload.options[n - 1]);
+          }
+          answer = picks.length ? picks.join(", ") : raw;
+        } else if (/^\d+$/.test(raw)) {
+          const n = parseInt(raw, 10);
+          answer = payload.options[n - 1] || raw;
+        } else {
+          answer = raw;
+        }
+      } else {
+        answer = window.prompt(payload.question) || "";
+      }
+      await api("/api/confirm", {
+        method: "POST",
+        body: JSON.stringify({ answer }),
+      });
+    }
+
+    async function sendMessage() {
+      const text = $("input").value.trim();
+      if (!text || busy) return;
+      if (!currentSessionId) {
+        await createSession();
+      }
+      busy = true;
+      $("send").disabled = true;
+      appendMessage("user", text);
+      $("input").value = "";
+      assistantNode = appendMessage("assistant", "");
+      setStatus("Agent 正在回复…");
+
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: currentSessionId, message: text }),
+      });
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() || "";
+        for (const part of parts) {
+          const lines = part.split("\n");
+          let event = "message";
+          let data = "";
+          for (const line of lines) {
+            if (line.startsWith("event: ")) event = line.slice(7);
+            if (line.startsWith("data: ")) data = line.slice(6);
+          }
+          if (!data) continue;
+          const payload = JSON.parse(data);
+          if (event === "token") {
+            assistantNode.textContent += payload.text;
+            $("messages").scrollTop = $("messages").scrollHeight;
+          } else if (event === "tool") {
+            appendMessage("tool", `[工具] ${payload.name}(${JSON.stringify(payload.arguments || {})})`, "tool");
+          } else if (event === "confirm") {
+            await handleConfirm(payload);
+          } else if (event === "error") {
+            assistantNode.textContent = payload.message || "发生错误";
+          } else if (event === "done") {
+            if (payload.text && !assistantNode.textContent) {
+              assistantNode.textContent = payload.text;
+            }
+          }
+        }
+      }
+
+      busy = false;
+      $("send").disabled = false;
+      setStatus(`会话 ${currentSessionId}`);
+      await refreshSessions($("search").value.trim());
+    }
+
+    $("new-chat").onclick = createSession;
+    $("send").onclick = sendMessage;
+    $("input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+    let searchTimer = null;
+    $("search").addEventListener("input", () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => refreshSessions($("search").value.trim()), 250);
+    });
+
+    refreshSessions().then(async () => {
+      const data = await api("/api/sessions");
+      if (data.sessions && data.sessions.length) {
+        await loadSession(data.sessions[0].id);
+      } else {
+        await createSession();
+      }
+    });
+  </script>
+</body>
+</html>

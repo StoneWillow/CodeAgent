@@ -60,6 +60,7 @@ def _settings(workspace: Path, budget: int) -> Settings:
         max_turns=4,
         workspace=workspace,
         context_tokens=budget,
+        sessions_dir=workspace.parent / "sessions",
     )
 
 

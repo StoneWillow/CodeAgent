@@ -116,6 +116,7 @@ def test_api_context_overflow_forces_snapshot() -> None:
             max_turns=4,
             workspace=ws,
             context_tokens=100_000,
+            sessions_dir=ws.parent / "sessions",
         )
         llm = FlakyLLM()
         agent = Agent.from_settings(settings, llm=llm)

@@ -54,6 +54,29 @@ class TodoStore:
             lines.append(f"- [{item.status}] {item.id}: {item.content}")
         return "\n".join(lines)
 
+    def to_list(self) -> list[dict[str, str]]:
+        return [
+            {"id": item.id, "content": item.content, "status": item.status}
+            for item in self.items.values()
+        ]
+
+    def load_list(self, items: list[dict]) -> None:
+        self.items.clear()
+        for raw in items:
+            if not isinstance(raw, dict):
+                continue
+            todo_id = str(raw.get("id") or "").strip()
+            if not todo_id:
+                continue
+            status = str(raw.get("status") or "pending")
+            if status not in _VALID_STATUS:
+                status = "pending"
+            self.items[todo_id] = TodoItem(
+                id=todo_id,
+                content=str(raw.get("content") or ""),
+                status=status,
+            )
+
 
 def register_todo_tool(registry: ToolRegistry, store: TodoStore) -> None:
     @registry.tool

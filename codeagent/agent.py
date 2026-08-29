@@ -55,6 +55,7 @@ class Agent:
         todo_store: TodoStore | None = None,
         memory: MemoryStore | None = None,
         compressor: Compressor | None = None,
+        conversation: Conversation | None = None,
     ) -> Agent:
         memory = memory or MemoryStore(settings.workspace)
         prompts = prompts or PromptManager(workspace=settings.workspace, memory=memory)
@@ -68,7 +69,7 @@ class Agent:
         )
         return cls(
             llm=llm_client,
-            conversation=Conversation(prompts.full_system()),
+            conversation=conversation or Conversation(prompts.full_system()),
             prompts=prompts,
             tools=tools
             or build_default_registry(

@@ -2,7 +2,7 @@
 
 独立实现的编程智能体：DeepSeek（OpenAI 兼容接口）+ 自研 ReAct 循环。不用 LangChain 等 agent 框架。
 
-当前能力：多轮 CLI、流式输出、文件工具、Bash 权限、**两层上下文压缩 + 规则式 Memory**。
+当前能力：多轮 CLI、流式输出、文件工具、Bash 权限、**两层上下文压缩 + 规则式 Memory**、**会话落盘与 Web 多窗口**。
 
 答辩/演示讲解见 [亮点.md](亮点.md)。
 
@@ -47,12 +47,37 @@ copy .env.example .env
 | `CODEAGENT_WORKSPACE` | 默认 `<项目根>/workspace/` |
 | `CODEAGENT_MAX_TURNS` | 默认 `24` |
 | `CODEAGENT_CONTEXT_TOKENS` | 上下文预算，默认 `1000000` |
+| `CODEAGENT_SESSIONS_DIR` | 会话 JSON 目录，默认 `<项目根>/sessions/` |
 
 ## 使用
 
 ```powershell
 python -m codeagent
 ```
+
+启动 Web 界面（左侧会话栏 + 右侧流式对话，默认 `http://127.0.0.1:8765`）：
+
+```powershell
+python -m codeagent --web
+```
+
+恢复指定会话：
+
+```powershell
+python -m codeagent --resume <会话id>
+```
+
+CLI 内斜杠命令（不进模型）：
+
+| 命令 | 作用 |
+| --- | --- |
+| `/new` | 新建并切换会话 |
+| `/list` | 列出最近会话 |
+| `/resume <id>` | 加载会话 |
+| `/search <关键词>` | 按标题与对话内容检索 |
+| `/web` | 提示使用 `--web` |
+
+会话文件保存在 `sessions/`（已在 `.gitignore`），每轮回复后自动落盘；含 `messages` 与可选 `todos`。项目级 Memory 仍在 `workspace/.agent/memory/`，多会话共享。
 
 把要修改的代码放在 `workspace/` 下。Agent 只能在该目录内读写文件、执行 Bash（cwd 锁定为 workspace）。
 
@@ -90,6 +115,9 @@ python -m codeagent
 ```text
 codeagent/context/   token 计数、两层压缩
 codeagent/memory/    短/长期规则式记忆
+codeagent/sessions/  会话落盘与恢复
+codeagent/web/       本地 Web（http.server + 静态页）
 codeagent/tools/     工具与 Bash 权限
 workspace/           默认活动范围
+sessions/            会话 JSON（gitignore）
 ```

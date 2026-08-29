@@ -20,6 +20,7 @@ class Settings:
     max_turns: int
     workspace: Path
     context_tokens: int
+    sessions_dir: Path
 
 
 _PROVIDER_PRESETS: dict[str, dict[str, str]] = {
@@ -70,6 +71,14 @@ def load_settings() -> Settings:
     except ValueError:
         context_tokens = 1_000_000
 
+    sessions_raw = os.getenv("CODEAGENT_SESSIONS_DIR", "").strip()
+    sessions_dir = (
+        Path(sessions_raw).resolve()
+        if sessions_raw
+        else (_PROJECT_ROOT / "sessions").resolve()
+    )
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+
     return Settings(
         provider=provider,
         api_key=api_key,
@@ -78,4 +87,5 @@ def load_settings() -> Settings:
         max_turns=max_turns,
         workspace=workspace,
         context_tokens=context_tokens,
+        sessions_dir=sessions_dir,
     )
