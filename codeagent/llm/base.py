@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
+
+TextDeltaListener = Callable[[str], None]
 
 
 @dataclass
@@ -30,4 +32,5 @@ class LLMClient(Protocol):
         self,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
+        on_text_delta: TextDeltaListener | None = None,
     ) -> ChatResult: ...

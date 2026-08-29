@@ -17,15 +17,44 @@ def _configure_stdio() -> None:
             pass
 
 
-def _print_tool(name: str, arguments: dict[str, Any]) -> None:
-    args = arguments or {}
-    print(f"  [工具] {name}({args})", flush=True)
+class _StreamPrinter:
+    """Print tokens as they arrive; tool lines on their own row."""
+
+    def __init__(self) -> None:
+        self.saw_text = False
+        self._in_text = False
+
+    def on_text(self, delta: str) -> None:
+        if not delta:
+            return
+        if not self._in_text:
+            print("Agent> ", end="", flush=True)
+            self._in_text = True
+            self.saw_text = True
+        print(delta, end="", flush=True)
+
+    def on_tool(self, name: str, arguments: dict[str, Any]) -> None:
+        if self._in_text:
+            print(flush=True)
+            self._in_text = False
+        print(f"  [工具] {name}({arguments or {}})", flush=True)
+
+    def finish(self, fallback: str | None = None) -> None:
+        if self._in_text:
+            print(flush=True)
+            self._in_text = False
+        elif fallback:
+            print(f"Agent> {fallback}", flush=True)
 
 
 def _reply(agent: Agent, user_text: str) -> None:
-    print("Agent> ", end="", flush=True)
-    output = agent.run(user_text)
-    print(output, flush=True)
+    printer = _StreamPrinter()
+    output = agent.run(
+        user_text,
+        on_text_delta=printer.on_text,
+        on_tool=printer.on_tool,
+    )
+    printer.finish(fallback=None if printer.saw_text else output)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -38,7 +67,7 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(1)
 
     try:
-        agent = Agent.from_settings(settings, on_tool=_print_tool)
+        agent = Agent.from_settings(settings)
     except ValueError as exc:
         print(str(exc))
         sys.exit(1)
@@ -46,7 +75,7 @@ def main(argv: list[str] | None = None) -> None:
     print(
         f"CodeAgent  |  provider={settings.provider}  model={settings.model}\n"
         f"工作区: {settings.workspace}\n"
-        "同一会话内多轮对话；输入 exit 退出。\n"
+        "同一会话内多轮对话；回复为流式输出。输入 exit 退出。\n"
     )
 
     first = " ".join(args).strip()

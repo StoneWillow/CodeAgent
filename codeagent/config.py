@@ -49,14 +49,19 @@ def load_settings() -> Settings:
         or preset.get("model", "")
     ).strip()
 
-    max_turns_raw = os.getenv("CODEAGENT_MAX_TURNS", "8").strip()
+    max_turns_raw = os.getenv("CODEAGENT_MAX_TURNS", "24").strip()
     try:
         max_turns = max(1, int(max_turns_raw))
     except ValueError:
-        max_turns = 8
+        max_turns = 24
 
     workspace_raw = os.getenv("CODEAGENT_WORKSPACE", "").strip()
-    workspace = Path(workspace_raw).resolve() if workspace_raw else Path.cwd()
+    workspace = (
+        Path(workspace_raw).resolve()
+        if workspace_raw
+        else (_PROJECT_ROOT / "workspace").resolve()
+    )
+    workspace.mkdir(parents=True, exist_ok=True)
 
     return Settings(
         provider=provider,

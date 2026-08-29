@@ -5,7 +5,7 @@ from typing import Any
 
 from openai import OpenAI
 
-from codeagent.llm.base import ChatResult, ToolCall
+from codeagent.llm.base import ChatResult, TextDeltaListener, ToolCall
 
 
 def _parse_arguments(raw: str | dict[str, Any] | None) -> dict[str, Any]:
@@ -23,25 +23,71 @@ def _parse_arguments(raw: str | dict[str, Any] | None) -> dict[str, Any]:
     return data if isinstance(data, dict) else {"_raw": data}
 
 
-def _message_to_dict(message: Any) -> dict[str, Any]:
-    data: dict[str, Any] = {
-        "role": getattr(message, "role", None) or "assistant",
-        "content": message.content,
-    }
-    tool_calls = getattr(message, "tool_calls", None) or []
-    if tool_calls:
-        data["tool_calls"] = [
-            {
-                "id": tc.id,
-                "type": getattr(tc, "type", None) or "function",
-                "function": {
-                    "name": tc.function.name,
-                    "arguments": tc.function.arguments,
-                },
-            }
-            for tc in tool_calls
+class _StreamAccumulator:
+    """Rebuild a full assistant message from Chat Completions stream chunks."""
+
+    def __init__(self) -> None:
+        self._content: list[str] = []
+        self._tools: dict[int, dict[str, str]] = {}
+        self.finish_reason = "stop"
+
+    def ingest(self, chunk: Any) -> str:
+        if not getattr(chunk, "choices", None):
+            return ""
+        choice = chunk.choices[0]
+        if choice.finish_reason:
+            self.finish_reason = choice.finish_reason
+        delta = choice.delta
+        if delta is None:
+            return ""
+        text = delta.content or ""
+        if text:
+            self._content.append(text)
+        for tc in getattr(delta, "tool_calls", None) or []:
+            entry = self._tools.setdefault(
+                tc.index, {"id": "", "name": "", "arguments": ""}
+            )
+            if tc.id:
+                entry["id"] = tc.id
+            fn = tc.function
+            if fn is None:
+                continue
+            if fn.name:
+                entry["name"] += fn.name
+            if fn.arguments:
+                entry["arguments"] += fn.arguments
+        return text
+
+    def to_result(self) -> ChatResult:
+        content = "".join(self._content) or None
+        ordered = [self._tools[i] for i in sorted(self._tools)]
+        tool_calls = [
+            ToolCall(
+                id=item["id"],
+                name=item["name"],
+                arguments=_parse_arguments(item["arguments"]),
+            )
+            for item in ordered
         ]
-    return data
+        raw: dict[str, Any] = {"role": "assistant", "content": content}
+        if ordered:
+            raw["tool_calls"] = [
+                {
+                    "id": item["id"],
+                    "type": "function",
+                    "function": {
+                        "name": item["name"],
+                        "arguments": item["arguments"],
+                    },
+                }
+                for item in ordered
+            ]
+        return ChatResult(
+            content=content,
+            tool_calls=tool_calls,
+            finish_reason=self.finish_reason,
+            raw_message=raw,
+        )
 
 
 class OpenAICompatibleClient:
@@ -55,27 +101,19 @@ class OpenAICompatibleClient:
         self,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
+        on_text_delta: TextDeltaListener | None = None,
     ) -> ChatResult:
         kwargs: dict[str, Any] = {
             "model": self._model,
             "messages": messages,
+            "stream": True,
         }
         if tools:
             kwargs["tools"] = tools
-        response = self._client.chat.completions.create(**kwargs)
-        choice = response.choices[0]
-        message = choice.message
-        tool_calls = [
-            ToolCall(
-                id=tc.id,
-                name=tc.function.name,
-                arguments=_parse_arguments(tc.function.arguments),
-            )
-            for tc in (message.tool_calls or [])
-        ]
-        return ChatResult(
-            content=message.content,
-            tool_calls=tool_calls,
-            finish_reason=choice.finish_reason or "stop",
-            raw_message=_message_to_dict(message),
-        )
+        stream = self._client.chat.completions.create(**kwargs)
+        acc = _StreamAccumulator()
+        for chunk in stream:
+            text = acc.ingest(chunk)
+            if text and on_text_delta is not None:
+                on_text_delta(text)
+        return acc.to_result()

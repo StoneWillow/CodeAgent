@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from codeagent.prompts.templates import DEFAULT_SYSTEM_PROMPT
+from pathlib import Path
+
+from codeagent.prompts.templates import build_system_prompt
 
 
 class PromptManager:
@@ -10,8 +12,19 @@ class PromptManager:
     should be assembled here instead of inside the ReAct loop.
     """
 
-    def __init__(self, system_prompt: str | None = None) -> None:
-        self._system_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
+    def __init__(
+        self,
+        system_prompt: str | None = None,
+        workspace: Path | None = None,
+    ) -> None:
+        if system_prompt is not None:
+            self._system_prompt = system_prompt
+        elif workspace is not None:
+            self._system_prompt = build_system_prompt(workspace)
+        else:
+            from codeagent.config import load_settings
+
+            self._system_prompt = build_system_prompt(load_settings().workspace)
 
     @property
     def system_prompt(self) -> str:
