@@ -9,7 +9,7 @@ __pycache__/
 .ruff_cache/
 dist/
 build/
-sessions/
+/sessions/
 .agent/
 .idea/
 .vscode/
