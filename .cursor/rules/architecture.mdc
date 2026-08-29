@@ -13,7 +13,9 @@ alwaysApply: true
 - `codeagent/conversation.py`：消息列表即上下文；保持可 JSON 序列化。
 - `codeagent/agent.py`：ReAct 循环（调模型 → 若 tool_calls 则执行再续 → 否则对用户输出）。
 
-第二层已有：@tool、文件工具、workspace 沙箱、流式 CLI。第三层已有：Bash 权限、AskUserQuestion、TodoWrite、NotebookEdit。第四层已有：两层上下文压缩 + 规则式 Memory。第五层已有：工具参数校验与熔断、API 重试、压缩兜底、服务端超长强制快照。第六层已有：会话落盘与 Web 多窗口。
+第二层已有：@tool、文件工具、workspace 沙箱、流式 CLI。第三层已有：Bash 权限、AskUserQuestion、TodoWrite、NotebookEdit。第四层已有：两层上下文压缩 + 规则式 Memory。第五层已有：工具参数校验与熔断、API 重试、压缩兜底、服务端超长强制快照。第六层已有：会话落盘与 Web 多窗口。第七层已有：只读子 Agent（`Task` 工具）。
+
+- `codeagent/tools/subagent.py`：`Task` 工具与 `build_explore_registry`；子 Agent 复用 `Agent.run`，禁止递归与写操作。
 
 - `codeagent/sessions/`：SessionStore（`sessions/*.json`）、list/load/save/search；新会话逻辑放这里。
 - `codeagent/web/`：本地 Web 只调 Store/Agent，不改 ReAct 语义；Bash/Ask 用页面 confirm。
