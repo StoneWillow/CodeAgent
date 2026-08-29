@@ -47,6 +47,7 @@ def test_tools():
         assert "AskUserQuestion" in names
         assert "TodoWrite" in names
         assert "NotebookEdit" in names
+        assert "test" not in names
 
         out = reg.execute("Bash", {"command": "rm -rf x"})
         assert "拒绝" in out

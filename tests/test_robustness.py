@@ -95,7 +95,7 @@ def test_api_context_overflow_forces_snapshot() -> None:
             def chat(self, messages, tools=None, on_text_delta=None):
                 user = (messages[-1].get("content") or "") if messages else ""
                 system = (messages[0].get("content") or "") if messages else ""
-                if "JSON" in system or "压缩" in user:
+                if "你只输出 JSON" in system or "会话压缩器" in user:
                     return ChatResult(
                         content='{"snapshot":"目标：写函数","session_memory":["- 正在写函数"],"workspace_memory":[],"workspace_long_term_new":[],"global_memory_new":[]}',
                         raw_message={"role": "assistant", "content": "{}"},
@@ -114,6 +114,7 @@ def test_api_context_overflow_forces_snapshot() -> None:
             base_url="http://x",
             model="m",
             max_turns=4,
+            subagent_max_turns=4,
             workspace=ws,
             context_tokens=100_000,
             sessions_dir=ws.parent / "sessions",

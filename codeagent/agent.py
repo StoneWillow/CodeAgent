@@ -5,6 +5,7 @@ from typing import Any, Callable
 
 from codeagent.config import Settings
 from codeagent.context.compressor import Compressor, CompressionListener
+from codeagent.context.tokens import count_request, count_text_tokens
 from codeagent.conversation import Conversation
 from codeagent.llm.base import LLMClient, TextDeltaListener
 from codeagent.llm.errors import ContextLengthAPIError, LLMRequestError
@@ -30,6 +31,7 @@ class Agent:
         max_turns: int,
         on_tool: ToolListener | None = None,
         on_text_delta: TextDeltaListener | None = None,
+        usage_tokens: int = 0,
     ) -> None:
         self._llm = llm
         self._conversation = conversation
@@ -39,6 +41,7 @@ class Agent:
         self._max_turns = max_turns
         self._on_tool = on_tool
         self._on_text_delta = on_text_delta
+        self._usage_tokens = max(0, int(usage_tokens))
 
     @classmethod
     def from_settings(
@@ -57,6 +60,8 @@ class Agent:
         compressor: Compressor | None = None,
         conversation: Conversation | None = None,
         session_memory: list[str] | None = None,
+        max_turns: int | None = None,
+        usage_tokens: int = 0,
     ) -> Agent:
         memory = memory or TieredMemory(
             settings.workspace,
@@ -79,14 +84,17 @@ class Agent:
             tools=tools
             or build_default_registry(
                 settings.workspace,
+                settings=settings,
                 ask_user=ask_user,
                 confirm_bash=confirm_bash,
                 todo_store=todo_store,
+                llm=llm_client,
             ),
             compressor=compressor,
-            max_turns=settings.max_turns,
+            max_turns=max_turns if max_turns is not None else settings.max_turns,
             on_tool=on_tool,
             on_text_delta=on_text_delta,
+            usage_tokens=usage_tokens,
         )
 
     @property
@@ -99,6 +107,15 @@ class Agent:
         if tiered is None:
             raise RuntimeError("agent memory is not configured")
         return tiered
+
+    def token_usage(self) -> dict[str, int]:
+        schemas = self._tools.schemas()
+        context = count_request(self._conversation.to_messages(), schemas)
+        return {
+            "context_tokens": context,
+            "usage_tokens": self._usage_tokens,
+            "context_budget": self._compressor.budget,
+        }
 
     def run(
         self,
@@ -115,6 +132,7 @@ class Agent:
 
         for _ in range(self._max_turns):
             messages = self._compressor.ensure_fits(self._conversation, schemas)
+            prompt_tokens = count_request(messages, schemas)
             try:
                 result = self._llm.chat(
                     messages,
@@ -130,6 +148,11 @@ class Agent:
             except LLMRequestError as exc:
                 return f"模型请求失败: {exc}"
 
+            out_tokens = count_text_tokens(result.content or "")
+            for call in result.tool_calls:
+                out_tokens += count_text_tokens(call.name)
+                out_tokens += count_text_tokens(str(call.arguments or ""))
+            self._usage_tokens += prompt_tokens + out_tokens
             self._conversation.add_assistant(result.raw_message)
 
             if not result.has_tool_calls:

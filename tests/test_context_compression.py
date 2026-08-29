@@ -61,6 +61,7 @@ def _settings(workspace: Path, budget: int) -> Settings:
         base_url="http://x",
         model="m",
         max_turns=4,
+        subagent_max_turns=4,
         workspace=workspace,
         context_tokens=budget,
         sessions_dir=root / "sessions",
@@ -113,12 +114,11 @@ def test_stage2_snapshot_and_memory() -> None:
         memory = _memory(ws)
         prompts = PromptManager(workspace=ws, memory=memory, global_memory_dir=ws.parent / "global_memory")
         llm = FakeLLM()
-        compressor = Compressor(llm, budget=500, prompts=prompts, memory=memory)
+        compressor = Compressor(llm, budget=2500, prompts=prompts, memory=memory)
         conv = Conversation(prompts.full_system())
         conv.add_user("大任务 " + ("x" * 400))
         conv.add_assistant({"role": "assistant", "content": "好的"})
-        schemas = None
-        compressor.ensure_fits(conv, schemas)
+        compressor._stage2_snapshot(conv)
         msgs = conv.to_messages()
         assert len(msgs) == 2
         assert msgs[1]["content"].startswith("[会话快照]")
@@ -156,6 +156,10 @@ def test_agent_with_fake_llm() -> None:
         agent = Agent.from_settings(settings, llm=FakeLLM())
         out = agent.run("你好")
         assert out == "任务完成"
+        stats = agent.token_usage()
+        assert stats["usage_tokens"] > 0
+        assert stats["context_tokens"] > 0
+        assert stats["context_budget"] == 100_000
 
 
 if __name__ == "__main__":

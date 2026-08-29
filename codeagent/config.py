@@ -18,6 +18,7 @@ class Settings:
     base_url: str
     model: str
     max_turns: int
+    subagent_max_turns: int
     workspace: Path
     context_tokens: int
     sessions_dir: Path
@@ -58,6 +59,12 @@ def load_settings() -> Settings:
     except ValueError:
         max_turns = 24
 
+    subagent_turns_raw = os.getenv("CODEAGENT_SUBAGENT_MAX_TURNS", "8").strip()
+    try:
+        subagent_max_turns = max(1, int(subagent_turns_raw))
+    except ValueError:
+        subagent_max_turns = 8
+
     workspace_raw = os.getenv("CODEAGENT_WORKSPACE", "").strip()
     workspace = (
         Path(workspace_raw).resolve()
@@ -94,6 +101,7 @@ def load_settings() -> Settings:
         base_url=base_url,
         model=model,
         max_turns=max_turns,
+        subagent_max_turns=subagent_max_turns,
         workspace=workspace,
         context_tokens=context_tokens,
         sessions_dir=sessions_dir,

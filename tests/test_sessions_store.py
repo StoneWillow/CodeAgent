@@ -83,3 +83,15 @@ def test_persist_roundtrip_with_todos(store: SessionStore) -> None:
 
     raw = json.loads((store.root / f"{record.id}.json").read_text(encoding="utf-8"))
     assert raw["todos"][0]["status"] == "in_progress"
+
+
+def test_token_fields_roundtrip(store: SessionStore) -> None:
+    record = store.create()
+    record.usage_tokens = 1234
+    record.context_tokens = 56
+    store.save(record)
+
+    loaded = store.load(record.id)
+    assert loaded is not None
+    assert loaded.usage_tokens == 1234
+    assert loaded.context_tokens == 56

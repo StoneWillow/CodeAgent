@@ -105,6 +105,10 @@ class Compressor:
         self._memory = memory
         self._on_compress = on_compress
 
+    @property
+    def budget(self) -> int:
+        return self._budget
+
     def ensure_fits(
         self,
         conversation: Conversation,

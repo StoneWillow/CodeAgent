@@ -42,6 +42,7 @@ def test_session_memory_persisted() -> None:
             base_url="http://x",
             model="m",
             max_turns=4,
+            subagent_max_turns=4,
             workspace=ws,
             context_tokens=100_000,
             sessions_dir=root / "sessions",

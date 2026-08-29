@@ -38,6 +38,31 @@
       flex-direction: column;
       min-width: 0;
     }
+    .chat-header {
+      padding: 14px 20px 10px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+      flex-shrink: 0;
+    }
+    #chat-title {
+      font-size: 15px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #usage {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+    #status {
+      padding: 8px 20px 0;
+      color: var(--muted);
+      font-size: 12px;
+      min-height: 18px;
+    }
     h1 {
       font-size: 16px;
       margin: 16px;
@@ -143,12 +168,6 @@
       min-height: 56px;
       resize: vertical;
     }
-    #status {
-      padding: 0 20px 8px;
-      color: var(--muted);
-      font-size: 12px;
-      min-height: 18px;
-    }
     .empty {
       color: var(--muted);
       text-align: center;
@@ -166,6 +185,10 @@
     <div id="session-list"></div>
   </aside>
   <main>
+    <header class="chat-header">
+      <div id="chat-title">选择或新建一个对话</div>
+      <div id="usage">上下文 — / —  ·  本会话累计 —</div>
+    </header>
     <div id="status"></div>
     <div id="messages"><div class="empty">选择或新建一个对话</div></div>
     <div class="composer">
@@ -197,6 +220,22 @@
 
     function setStatus(text) {
       $("status").textContent = text || "";
+    }
+
+    function formatTokens(n) {
+      return Number(n || 0).toLocaleString();
+    }
+
+    function renderUsage(data) {
+      if (!data || data.context_budget == null) return;
+      const ctx = formatTokens(data.context_tokens);
+      const budget = formatTokens(data.context_budget);
+      const used = formatTokens(data.usage_tokens);
+      $("usage").textContent = `上下文 ${ctx} / ${budget}  ·  本会话累计 ${used}`;
+    }
+
+    function setChatTitle(title) {
+      $("chat-title").textContent = title || "新对话";
     }
 
     function renderSessions(sessions) {
@@ -274,7 +313,9 @@
       currentSessionId = data.id;
       renderMessages(data.messages || []);
       await refreshSessions($("search").value.trim());
-      setStatus(`会话 ${data.id} · ${data.title || "新对话"}`);
+      setChatTitle(data.title || "新对话");
+      renderUsage(data);
+      setStatus("");
     }
 
     async function createSession() {
@@ -282,7 +323,9 @@
       currentSessionId = data.id;
       renderMessages([]);
       await refreshSessions();
-      setStatus(`已新建会话 ${data.id}`);
+      setChatTitle(data.title || "新对话");
+      renderUsage(data);
+      setStatus("");
     }
 
     async function handleConfirm(payload) {
@@ -380,13 +423,14 @@
             if (payload.text && !assistantNode.textContent) {
               assistantNode.textContent = payload.text;
             }
+            renderUsage(payload);
           }
         }
       }
 
       busy = false;
       $("send").disabled = false;
-      setStatus(`会话 ${currentSessionId}`);
+      setStatus("");
       await refreshSessions($("search").value.trim());
     }
 

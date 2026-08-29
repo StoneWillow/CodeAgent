@@ -14,6 +14,7 @@ from urllib.parse import parse_qs, urlparse
 from codeagent.agent import Agent
 from codeagent.config import load_settings
 from codeagent.context.errors import ContextOverflowError
+from codeagent.context.tokens import count_messages
 from codeagent.llm.errors import ContextLengthAPIError, LLMRequestError
 from codeagent.sessions.helpers import build_agent_for_session, persist_session
 from codeagent.sessions.store import SessionRecord, SessionStore
@@ -54,6 +55,20 @@ class _AppState:
 
 
 STATE = _AppState()
+
+
+def _token_payload(record: SessionRecord) -> dict[str, int]:
+    agent = STATE._agents.get(record.id)
+    if agent is not None:
+        return agent.token_usage()
+    context = record.context_tokens
+    if not context and record.messages:
+        context = count_messages(record.messages)
+    return {
+        "context_tokens": context,
+        "usage_tokens": record.usage_tokens,
+        "context_budget": STATE.settings.context_tokens,
+    }
 
 
 def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: Any) -> None:
@@ -150,6 +165,7 @@ class WebHandler(BaseHTTPRequestHandler):
                     "title": record.title,
                     "updated_at": record.updated_at,
                     "messages": _public_messages(record),
+                    **_token_payload(record),
                 },
             )
             return
@@ -174,6 +190,7 @@ class WebHandler(BaseHTTPRequestHandler):
                     "title": record.title,
                     "updated_at": record.updated_at,
                     "messages": [],
+                    **_token_payload(record),
                 },
             )
             return
@@ -279,7 +296,7 @@ class WebHandler(BaseHTTPRequestHandler):
                 return
 
             persist_session(STATE.store, record, agent, todo_store)
-            _sse_write(self, "done", {"text": output})
+            _sse_write(self, "done", {"text": output, **_token_payload(record)})
         finally:
             STATE.interaction.on_pending = None
             CHAT_LOCK.release()

@@ -52,6 +52,7 @@ copy .env.example .env
 | `CODEAGENT_CONTEXT_TOKENS` | 上下文预算，默认 `1000000` |
 | `CODEAGENT_SESSIONS_DIR` | 会话 JSON 目录，默认 `<项目根>/sessions/` |
 | `CODEAGENT_GLOBAL_MEMORY_DIR` | 全局记忆目录，默认 `<项目根>/.agent/memory/` |
+| `CODEAGENT_SUBAGENT_MAX_TURNS` | 子 Agent 单轮最大循环次数，默认 `8` |
 
 ## 使用
 
@@ -59,7 +60,7 @@ copy .env.example .env
 python -m codeagent
 ```
 
-启动 Web 界面（左侧会话栏 + 右侧流式对话，默认 `http://127.0.0.1:8765`）：
+启动 Web 界面（左侧会话栏 + 右侧流式对话，默认 `http://127.0.0.1:8765`）。会话窗口上方显示当前上下文 token（含工具 schema）与本会话累计用量（各轮请求估算之和）：
 
 ```powershell
 python -m codeagent --web
@@ -81,7 +82,7 @@ CLI 内斜杠命令（不进模型）：
 | `/search <关键词>` | 按标题与对话内容检索 |
 | `/web` | 提示使用 `--web` |
 
-会话文件保存在 `sessions/`（已在 `.gitignore`），每轮回复后自动落盘；含 `messages`、`todos` 与 `memory`（会话级）。工作区与全局记忆分别落在 `workspace/.agent/memory/` 与 `.agent/memory/`。
+会话文件保存在仓库根目录 `sessions/`（`.gitignore` 为 `/sessions/`，只忽略数据目录，不会误伤 `codeagent/sessions/` 源码）。每轮回复后自动落盘；含 `messages`、`todos`、`memory` 以及 token 统计。工作区与全局记忆分别落在 `workspace/.agent/memory/` 与 `.agent/memory/`。
 
 把要修改的代码放在 `workspace/` 下。Agent 只能在该目录内读写文件、执行 Bash（cwd 锁定为 workspace）。
 
@@ -94,7 +95,7 @@ CLI 内斜杠命令（不进模型）：
 | `Bash` | 编译检查、运行程序（有权限控制） |
 | `TodoWrite` | 会话内任务列表 |
 | `AskUserQuestion` | 向用户提问（单选/多选/自由输入） |
-| `test` | 连通性测试 |
+| `Task` | 只读子 Agent（Glob/Grep/Read），探索后返回摘要；不可递归、不可改文件 |
 
 ## Bash 权限（deny > ask > allow）
 
@@ -106,7 +107,7 @@ CLI 内斜杠命令（不进模型）：
 | **ask** | 终端询问 `y/N` | `make`、`cmake`、未匹配白名单的命令 |
 | **allow** | 直接执行 | `g++ hello.cpp`、`python hello.py`、`pytest`、`git status`、`dir` |
 
-原则：**改文件必须用 Write/Edit/NotebookEdit，不要用 Bash。** Bash 只用于编译是否通过、程序跑起来是什么结果。
+原则：**改文件走 Write/Edit/NotebookEdit，不要用 Bash 重定向或 rm/cp。** 策略看的是命令字符串，不是进程里的文件系统调用；白名单里的 `python xxx.py` 脚本内部仍可能写文件。Bash 主要用于编译是否通过、程序跑起来是什么结果。
 
 后台任务：`Bash(..., background=True)`，日志在 `workspace/.agent/jobs/<id>.log`，可用 Read 查看。
 
