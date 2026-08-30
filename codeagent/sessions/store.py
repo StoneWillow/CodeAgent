@@ -118,6 +118,18 @@ class SessionStore:
         except (json.JSONDecodeError, OSError):
             return None
 
+    def delete(self, session_id: str) -> bool:
+        if not session_id or "/" in session_id or "\\" in session_id:
+            return False
+        path = self._path(session_id)
+        if not path.exists():
+            return False
+        try:
+            path.unlink()
+        except OSError:
+            return False
+        return True
+
     def list(self) -> list[SessionSummary]:
         items: list[tuple[str, float, SessionSummary]] = []
         for path in self._root.glob("*.json"):

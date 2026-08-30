@@ -109,6 +109,11 @@ class Compressor:
     def budget(self) -> int:
         return self._budget
 
+    def set_on_compress(self, listener: CompressionListener | None) -> CompressionListener | None:
+        previous = self._on_compress
+        self._on_compress = listener
+        return previous
+
     def ensure_fits(
         self,
         conversation: Conversation,

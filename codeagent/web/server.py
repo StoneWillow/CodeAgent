@@ -176,6 +176,19 @@ class WebHandler(BaseHTTPRequestHandler):
 
         _json_response(self, HTTPStatus.NOT_FOUND, {"error": "not_found"})
 
+    def do_DELETE(self) -> None:
+        parsed = urlparse(self.path)
+        match = re.fullmatch(r"/api/sessions/([^/]+)", parsed.path)
+        if not match:
+            _json_response(self, HTTPStatus.NOT_FOUND, {"error": "not_found"})
+            return
+        session_id = match.group(1)
+        STATE.drop_agent(session_id)
+        if not STATE.store.delete(session_id):
+            _json_response(self, HTTPStatus.NOT_FOUND, {"error": "not_found"})
+            return
+        _json_response(self, HTTPStatus.OK, {"ok": True, "id": session_id})
+
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
@@ -250,7 +263,7 @@ class WebHandler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
-        self.send_header("Connection", "keep-alive")
+        self.send_header("Connection", "close")
         self.end_headers()
 
         if not CHAT_LOCK.acquire(blocking=False):
@@ -272,8 +285,17 @@ class WebHandler(BaseHTTPRequestHandler):
             def on_tool(name: str, arguments: dict[str, Any]) -> None:
                 _sse_write(self, "tool", {"name": name, "arguments": arguments})
 
+            def on_compress(msg: str) -> None:
+                if msg:
+                    _sse_write(self, "compress", {"message": msg})
+
             try:
-                output = agent.run(message, on_text_delta=on_text, on_tool=on_tool)
+                output = agent.run(
+                    message,
+                    on_text_delta=on_text,
+                    on_tool=on_tool,
+                    on_compress=on_compress,
+                )
             except ContextOverflowError as exc:
                 _sse_write(
                     self,

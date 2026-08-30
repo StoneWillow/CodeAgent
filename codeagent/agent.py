@@ -122,6 +122,7 @@ class Agent:
         user_text: str,
         on_text_delta: TextDeltaListener | None = None,
         on_tool: ToolListener | None = None,
+        on_compress: CompressionListener | None = None,
     ) -> str:
         self._conversation.add_user(user_text)
         schemas = self._tools.schemas()
@@ -129,48 +130,55 @@ class Agent:
         tool_cb = on_tool or self._on_tool
         last_observation = ""
         forced_snapshot = False
+        previous_compress = None
+        if on_compress is not None:
+            previous_compress = self._compressor.set_on_compress(on_compress)
 
-        for _ in range(self._max_turns):
-            messages = self._compressor.ensure_fits(self._conversation, schemas)
-            prompt_tokens = count_request(messages, schemas)
-            try:
-                result = self._llm.chat(
-                    messages,
-                    tools=schemas or None,
-                    on_text_delta=text_cb,
-                )
-            except ContextLengthAPIError:
-                if forced_snapshot:
-                    raise
-                self._compressor.force_snapshot(self._conversation)
-                forced_snapshot = True
-                continue
-            except LLMRequestError as exc:
-                return f"模型请求失败: {exc}"
+        try:
+            for _ in range(self._max_turns):
+                messages = self._compressor.ensure_fits(self._conversation, schemas)
+                prompt_tokens = count_request(messages, schemas)
+                try:
+                    result = self._llm.chat(
+                        messages,
+                        tools=schemas or None,
+                        on_text_delta=text_cb,
+                    )
+                except ContextLengthAPIError:
+                    if forced_snapshot:
+                        raise
+                    self._compressor.force_snapshot(self._conversation)
+                    forced_snapshot = True
+                    continue
+                except LLMRequestError as exc:
+                    return f"模型请求失败: {exc}"
 
-            out_tokens = count_text_tokens(result.content or "")
-            for call in result.tool_calls:
-                out_tokens += count_text_tokens(call.name)
-                out_tokens += count_text_tokens(str(call.arguments or ""))
-            self._usage_tokens += prompt_tokens + out_tokens
-            self._conversation.add_assistant(result.raw_message)
+                out_tokens = count_text_tokens(result.content or "")
+                for call in result.tool_calls:
+                    out_tokens += count_text_tokens(call.name)
+                    out_tokens += count_text_tokens(str(call.arguments or ""))
+                self._usage_tokens += prompt_tokens + out_tokens
+                self._conversation.add_assistant(result.raw_message)
 
-            if not result.has_tool_calls:
-                text = (result.content or "").strip()
-                return text or "(模型没有返回文本)"
+                if not result.has_tool_calls:
+                    text = (result.content or "").strip()
+                    return text or "(模型没有返回文本)"
 
-            for call in result.tool_calls:
-                if not call.id:
-                    call.id = f"call_{uuid.uuid4().hex[:8]}"
-                if tool_cb is not None:
-                    tool_cb(call.name, call.arguments)
-                observation = self._tools.execute(call.name, call.arguments)
-                last_observation = observation
-                self._conversation.add_tool_result(
-                    tool_call_id=call.id,
-                    content=observation,
-                    name=call.name,
-                )
+                for call in result.tool_calls:
+                    if not call.id:
+                        call.id = f"call_{uuid.uuid4().hex[:8]}"
+                    if tool_cb is not None:
+                        tool_cb(call.name, call.arguments)
+                    observation = self._tools.execute(call.name, call.arguments)
+                    last_observation = observation
+                    self._conversation.add_tool_result(
+                        tool_call_id=call.id,
+                        content=observation,
+                        name=call.name,
+                    )
 
-        suffix = f"\n最后一次工具观察: {last_observation[:500]}" if last_observation else ""
-        return "已达到本轮最大循环次数，停止。" + suffix
+            suffix = f"\n最后一次工具观察: {last_observation[:500]}" if last_observation else ""
+            return "已达到本轮最大循环次数，停止。" + suffix
+        finally:
+            if on_compress is not None:
+                self._compressor.set_on_compress(previous_compress)

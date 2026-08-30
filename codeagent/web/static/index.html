@@ -102,17 +102,21 @@
       padding: 0 8px 12px;
     }
     .session-item {
-      padding: 10px 12px;
+      padding: 10px 8px 10px 12px;
       border-radius: 8px;
       cursor: pointer;
       margin-bottom: 4px;
       border: 1px solid transparent;
+      display: flex;
+      align-items: flex-start;
+      gap: 4px;
     }
     .session-item:hover { background: #1e2430; }
     .session-item.active {
       background: #1b2438;
       border-color: #35548a;
     }
+    .session-body { flex: 1; min-width: 0; }
     .session-title {
       font-size: 14px;
       white-space: nowrap;
@@ -132,6 +136,16 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
+    .session-del {
+      background: transparent;
+      color: var(--muted);
+      padding: 2px 8px;
+      font-size: 16px;
+      line-height: 1.2;
+      flex-shrink: 0;
+      border-radius: 6px;
+    }
+    .session-del:hover { color: #ff8b8b; background: #2a1a1a; }
     #messages {
       flex: 1;
       overflow: auto;
@@ -150,13 +164,50 @@
     }
     .msg.user { background: var(--user); align-self: flex-end; }
     .msg.assistant { background: var(--assistant); align-self: flex-start; }
-    .msg.tool {
-      background: #141820;
-      color: var(--muted);
+    .msg.compress {
+      background: #161b14;
+      color: #b7d59a;
       font-size: 13px;
       align-self: flex-start;
-      border: 1px dashed var(--border);
+      border: 1px dashed #3d5a32;
     }
+    .msg.ask {
+      background: #1a1f2b;
+      align-self: flex-start;
+      border: 1px solid #35548a;
+      max-width: 900px;
+    }
+    .ask-title {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .ask-q { font-weight: 600; }
+    .ask-meta {
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 8px;
+      white-space: pre-wrap;
+    }
+    .ask-options {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .ask-options label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text);
+      font-size: 13px;
+    }
+    .ask-free {
+      margin-top: 10px;
+      display: flex;
+      gap: 8px;
+    }
+    .ask-free textarea { min-height: 48px; }
     .composer {
       border-top: 1px solid var(--border);
       padding: 16px 20px;
@@ -249,12 +300,25 @@
         const el = document.createElement("div");
         el.className = "session-item" + (s.id === currentSessionId ? " active" : "");
         el.dataset.id = s.id;
-        el.innerHTML = `
+        const body = document.createElement("div");
+        body.className = "session-body";
+        body.innerHTML = `
           <div class="session-title">${escapeHtml(s.title || "新对话")}</div>
           <div class="session-meta">${escapeHtml(s.id)} · ${formatTime(s.updated_at)}</div>
           ${s.snippet ? `<div class="session-snippet">${escapeHtml(s.snippet)}</div>` : ""}
         `;
-        el.onclick = () => loadSession(s.id);
+        const del = document.createElement("button");
+        del.className = "session-del";
+        del.type = "button";
+        del.title = "删除会话";
+        del.textContent = "×";
+        del.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          deleteSession(s.id);
+        });
+        el.appendChild(body);
+        el.appendChild(del);
+        el.addEventListener("click", () => loadSession(s.id));
         list.appendChild(el);
       }
     }
@@ -328,46 +392,140 @@
       setStatus("");
     }
 
-    async function handleConfirm(payload) {
-      if (payload.type === "bash") {
-        const ok = window.confirm(
-          `Bash 需要确认\n\n原因: ${payload.reason}\n命令: ${payload.command}\n\n允许执行？`
-        );
-        await api("/api/confirm", {
-          method: "POST",
-          body: JSON.stringify({ approved: ok }),
-        });
+    async function deleteSession(id) {
+      if (busy && id === currentSessionId) {
+        setStatus("对话进行中，请等本轮结束后再删除");
         return;
       }
-      let answer = "";
-      if (payload.options && payload.options.length) {
-        const lines = payload.options.map((o, i) => `${i + 1}. ${o}`).join("\n");
-        const raw = window.prompt(
-          `${payload.question}\n\n${lines}\n\n${payload.allow_multiple ? "多选用逗号分隔编号" : "输入编号"}`
-        );
-        if (raw === null) {
-          await api("/api/confirm", { method: "POST", body: JSON.stringify({ answer: "" }) });
-          return;
-        }
-        if (payload.allow_multiple) {
-          const picks = [];
-          for (const part of raw.split(/[,，]/)) {
-            const n = parseInt(part.trim(), 10);
-            if (n >= 1 && n <= payload.options.length) picks.push(payload.options[n - 1]);
-          }
-          answer = picks.length ? picks.join(", ") : raw;
-        } else if (/^\d+$/.test(raw)) {
-          const n = parseInt(raw, 10);
-          answer = payload.options[n - 1] || raw;
-        } else {
-          answer = raw;
-        }
-      } else {
-        answer = window.prompt(payload.question) || "";
+      if (!window.confirm("删除这个会话？此操作不可恢复。")) {
+        return;
       }
-      await api("/api/confirm", {
-        method: "POST",
-        body: JSON.stringify({ answer }),
+      await api(`/api/sessions/${id}`, { method: "DELETE" });
+      if (id !== currentSessionId) {
+        await refreshSessions($("search").value.trim());
+        return;
+      }
+      currentSessionId = null;
+      const data = await api("/api/sessions");
+      const rest = data.sessions || [];
+      if (rest.length) {
+        await loadSession(rest[0].id);
+      } else {
+        await createSession();
+      }
+    }
+
+    function handleConfirm(payload) {
+      return new Promise((resolve) => {
+        assistantNode = null;
+        const box = $("messages");
+        const empty = box.querySelector(".empty");
+        if (empty) empty.remove();
+
+        const card = document.createElement("div");
+        card.className = "msg ask";
+
+        async function finish(body, userText) {
+          card.querySelectorAll("button, input, textarea").forEach((el) => {
+            el.disabled = true;
+          });
+          appendMessage("user", userText);
+          try {
+            await api("/api/confirm", {
+              method: "POST",
+              body: JSON.stringify(body),
+            });
+          } finally {
+            resolve();
+          }
+        }
+
+        if (payload.type === "bash") {
+          const title = document.createElement("div");
+          title.className = "ask-title";
+          title.textContent = "需要你确认 Bash 命令";
+          const q = document.createElement("div");
+          q.className = "ask-q";
+          q.textContent = payload.reason || "未匹配白名单";
+          const meta = document.createElement("div");
+          meta.className = "ask-meta";
+          meta.textContent = payload.command || "";
+          const row = document.createElement("div");
+          row.className = "ask-options";
+          const yes = document.createElement("button");
+          yes.textContent = "允许";
+          const no = document.createElement("button");
+          no.className = "secondary";
+          no.textContent = "拒绝";
+          yes.onclick = () => finish({ approved: true }, "允许执行该命令");
+          no.onclick = () => finish({ approved: false }, "拒绝执行该命令");
+          row.append(yes, no);
+          card.append(title, q, meta, row);
+        } else {
+          const title = document.createElement("div");
+          title.className = "ask-title";
+          title.textContent = "Agent 向你提问";
+          const q = document.createElement("div");
+          q.className = "ask-q";
+          q.textContent = payload.question || "需要你确认";
+          card.append(title, q);
+          const options = payload.options || [];
+          if (options.length && !payload.allow_multiple) {
+            const row = document.createElement("div");
+            row.className = "ask-options";
+            for (const opt of options) {
+              const btn = document.createElement("button");
+              btn.textContent = opt;
+              btn.onclick = () => finish({ answer: opt }, opt);
+              row.appendChild(btn);
+            }
+            card.appendChild(row);
+          } else if (options.length && payload.allow_multiple) {
+            const row = document.createElement("div");
+            row.className = "ask-options";
+            const boxes = [];
+            for (const opt of options) {
+              const label = document.createElement("label");
+              const cb = document.createElement("input");
+              cb.type = "checkbox";
+              cb.value = opt;
+              label.append(cb, document.createTextNode(" " + opt));
+              row.appendChild(label);
+              boxes.push(cb);
+            }
+            const submit = document.createElement("button");
+            submit.textContent = "确定";
+            submit.onclick = () => {
+              const picks = boxes.filter((c) => c.checked).map((c) => c.value);
+              const answer = picks.join(", ");
+              finish({ answer }, answer || "(未选择)");
+            };
+            card.append(row, submit);
+          } else {
+            const row = document.createElement("div");
+            row.className = "ask-free";
+            const input = document.createElement("textarea");
+            input.rows = 2;
+            input.placeholder = "在此输入回答，会作为你的消息留下";
+            const submit = document.createElement("button");
+            submit.textContent = "发送";
+            const sendFree = () => {
+              const answer = input.value.trim();
+              finish({ answer }, answer || "(空)");
+            };
+            submit.onclick = sendFree;
+            input.addEventListener("keydown", (e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                sendFree();
+              }
+            });
+            row.append(input, submit);
+            card.appendChild(row);
+          }
+        }
+        box.appendChild(card);
+        box.scrollTop = box.scrollHeight;
       });
     }
 
@@ -379,59 +537,87 @@
       }
       busy = true;
       $("send").disabled = true;
+      $("input").disabled = true;
       appendMessage("user", text);
       $("input").value = "";
-      assistantNode = appendMessage("assistant", "");
+      assistantNode = null;
       setStatus("Agent 正在回复…");
 
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: currentSessionId, message: text }),
-      });
+      try {
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: currentSessionId, message: text }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || res.statusText);
+        }
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
 
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split("\n\n");
-        buffer = parts.pop() || "";
-        for (const part of parts) {
-          const lines = part.split("\n");
-          let event = "message";
-          let data = "";
-          for (const line of lines) {
-            if (line.startsWith("event: ")) event = line.slice(7);
-            if (line.startsWith("data: ")) data = line.slice(6);
-          }
-          if (!data) continue;
-          const payload = JSON.parse(data);
-          if (event === "token") {
-            assistantNode.textContent += payload.text;
-            $("messages").scrollTop = $("messages").scrollHeight;
-          } else if (event === "tool") {
-            appendMessage("tool", `[工具] ${payload.name}(${JSON.stringify(payload.arguments || {})})`, "tool");
-          } else if (event === "confirm") {
-            await handleConfirm(payload);
-          } else if (event === "error") {
-            assistantNode.textContent = payload.message || "发生错误";
-          } else if (event === "done") {
-            if (payload.text && !assistantNode.textContent) {
-              assistantNode.textContent = payload.text;
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop() || "";
+          for (const part of parts) {
+            const lines = part.split("\n");
+            let event = "message";
+            let data = "";
+            for (const line of lines) {
+              if (line.startsWith("event: ")) event = line.slice(7);
+              if (line.startsWith("data: ")) data = line.slice(6);
             }
-            renderUsage(payload);
+            if (!data) continue;
+            const payload = JSON.parse(data);
+            if (event === "token") {
+              if (!assistantNode) {
+                assistantNode = appendMessage("assistant", "");
+              }
+              assistantNode.textContent += payload.text;
+              $("messages").scrollTop = $("messages").scrollHeight;
+            } else if (event === "tool") {
+              assistantNode = null;
+              appendMessage("tool", `[工具] ${payload.name}(${JSON.stringify(payload.arguments || {})})`, "tool");
+            } else if (event === "compress") {
+              assistantNode = null;
+              appendMessage("compress", payload.message || "[上下文] 压缩", "compress");
+              setStatus(payload.message || "");
+            } else if (event === "confirm") {
+              await handleConfirm(payload);
+            } else if (event === "error") {
+              if (!assistantNode) {
+                assistantNode = appendMessage("assistant", "");
+              }
+              assistantNode.textContent = payload.message || "发生错误";
+            } else if (event === "done") {
+              if (payload.text && (!assistantNode || !assistantNode.textContent)) {
+                if (!assistantNode) {
+                  assistantNode = appendMessage("assistant", payload.text);
+                } else {
+                  assistantNode.textContent = payload.text;
+                }
+              }
+              renderUsage(payload);
+              await reader.cancel().catch(() => {});
+              return;
+            }
           }
         }
+      } catch (err) {
+        appendMessage("assistant", String(err.message || err));
+      } finally {
+        busy = false;
+        $("send").disabled = false;
+        $("input").disabled = false;
+        $("input").focus();
+        setStatus("");
+        await refreshSessions($("search").value.trim());
       }
-
-      busy = false;
-      $("send").disabled = false;
-      setStatus("");
-      await refreshSessions($("search").value.trim());
     }
 
     $("new-chat").onclick = createSession;

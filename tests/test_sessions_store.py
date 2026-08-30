@@ -95,3 +95,12 @@ def test_token_fields_roundtrip(store: SessionStore) -> None:
     assert loaded is not None
     assert loaded.usage_tokens == 1234
     assert loaded.context_tokens == 56
+
+
+def test_delete_session(store: SessionStore) -> None:
+    record = store.create()
+    assert store.load(record.id) is not None
+    assert store.delete(record.id) is True
+    assert store.load(record.id) is None
+    assert store.delete(record.id) is False
+    assert store.delete("../escape") is False
